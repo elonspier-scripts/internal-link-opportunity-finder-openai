@@ -74,6 +74,14 @@ def extract_topical_category(text):
     unique_words = list(dict.fromkeys(filtered))
     return " / ".join(unique_words[:2]).upper() if unique_words else "ALGEMEEN"
 
+def apply_color(val):
+    """Bepaalt de kleur van de score cijfers."""
+    if isinstance(val, (int, float, np.integer)):
+        if val <= 60: return 'color: #dc3545; font-weight: bold;'
+        elif val <= 84: return 'color: #ffc107; font-weight: bold;'
+        else: return 'color: #28a745; font-weight: bold;'
+    return ''
+
 # ========================================================
 # 3. HOOFDSCHERM INPUT
 # ========================================================
@@ -131,8 +139,8 @@ if st.button("🚀 Start Analyse", type="primary"):
 
                     if focus_url != target_url and score >= min_score:
                         results.append({
-                            'Category': source_topic, # Altijd vullen voor tab-filtering
-                            'Focus URL': focus_url,   # Altijd vullen voor tab-filtering
+                            'Category': source_topic,
+                            'Focus URL': focus_url,
                             'Interne Link Kans': f"{target_url}",
                             'Score (%)': round(score * 100)
                         })
@@ -145,17 +153,8 @@ if st.button("🚀 Start Analyse", type="primary"):
 
                 # --- SECTIE 1: HOOFDTABEL ---
                 st.subheader("📊 Volledig Overzicht")
-                
-                # Schoon de DataFrame op voor weergave (verberg herhalingen)
                 display_df = all_results_df.copy()
                 display_df.loc[display_df.duplicated(['Focus URL']), ['Category', 'Focus URL']] = ""
-
-                def apply_color(val):
-                    if isinstance(val, (int, float, np.integer)):
-                        if val <= 60: return 'color: #dc3545; font-weight: bold;'
-                        elif val <= 84: return 'color: #ffc107; font-weight: bold;'
-                        else: return 'color: #28a745; font-weight: bold;'
-                    return ''
 
                 st.dataframe(
                     display_df.style.map(apply_color, subset=['Score (%)']),
@@ -165,21 +164,26 @@ if st.button("🚀 Start Analyse", type="primary"):
 
                 st.divider()
 
-                # --- SECTIE 2: CATEGORIE MATRIX (TABS) ---
-                st.subheader("📁 Analyse per Categorie Matrix")
-                unique_categories = sorted(all_results_df['Category'].unique())
+                # --- SECTIE 2: TOP-DOWN TOPIC HUBS ---
+                st.subheader("🏗️ Topic Hubs (Gerangschikt op relevantie)")
                 
-                if unique_categories:
-                    tabs = st.tabs(unique_categories)
-                    for i, cat in enumerate(unique_categories):
-                        with tabs[i]:
-                            cat_df = all_results_df[all_results_df['Category'] == cat].copy()
-                            # Schoonmaken voor tabel-weergave binnen tab
-                            cat_display = cat_df.copy()
-                            cat_display.loc[cat_display.duplicated('Focus URL'), 'Focus URL'] = ""
-                            
-                            st.markdown(f"**Relevante links binnen de categorie: `{cat}`**")
-                            st.table(cat_display[['Focus URL', 'Interne Link Kans', 'Score (%)']])
+                # Bereken gemiddelde score per categorie om hubs te rangschikken
+                hub_ranking = all_results_df.groupby('Category')['Score (%)'].mean().sort_values(ascending=False)
+                
+                for cat in hub_ranking.index:
+                    avg_score = round(hub_ranking[cat])
+                    with st.expander(f"📁 {cat} (Gem. relevantie: {avg_score}%)"):
+                        cat_df = all_results_df[all_results_df['Category'] == cat].copy()
+                        
+                        # Alleen Focus URL's binnen deze specifieke categorie verbergen bij herhaling
+                        cat_display = cat_df.copy()
+                        cat_display.loc[cat_display.duplicated('Focus URL'), 'Focus URL'] = ""
+                        
+                        st.dataframe(
+                            cat_display[['Focus URL', 'Interne Link Kans', 'Score (%)']].style.map(apply_color, subset=['Score (%)']),
+                            use_container_width=True,
+                            column_config={"Score (%)": st.column_config.NumberColumn(format="%d%%")}
+                        )
 
                 # --- SECTIE 3: DOWNLOAD ---
                 output = io.BytesIO()
