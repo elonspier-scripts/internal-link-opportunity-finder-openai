@@ -5,12 +5,14 @@ from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 import re
 import io
+import plotly.express as px
+import plotly.graph_objects as go
 
 # Pagina instellingen
-st.set_page_config(page_title="Semantic Link Finder & Matrix", layout="wide")
+st.set_page_config(page_title="Semantic Link Finder & Plotly Matrix", layout="wide")
 
 st.title("🔗 Semantic Link Finder & Matrix")
-st.markdown("Vind linkkansen en visualiseer de verbanden tussen je Topic Hubs.")
+st.markdown("Vind linkkansen en visualiseer de verbanden tussen je Topic Hubs met Plotly.")
 
 # ========================================================
 # 1. SIDEBAR CONFIGURATIE
@@ -90,7 +92,7 @@ if st.button("🚀 Start Analyse", type="primary"):
             df['combined_text'] = df.apply(lambda row: str(row['url_text']) + ' ' + ' '.join(row[content_cols].values.astype(str)), axis=1)
             df['Topical_Category'] = df['combined_text'].apply(extract_topical_category)
 
-            # Maak een lookup dictionary voor categorieën per URL
+            # Mapping URL -> Categorie
             url_to_cat = dict(zip(df[url_col], df['Topical_Category']))
 
             st.info("⚙️ Embeddings genereren...")
@@ -123,32 +125,34 @@ if st.button("🚀 Start Analyse", type="primary"):
             if results:
                 res_df = pd.DataFrame(results)
                 
-                # --- MATRIX SECTIE ---
-                st.subheader("📊 Cross-Linking Matrix (Intensity)")
+                # --- PLOTLY MATRIX SECTIE ---
+                st.subheader("📊 Cross-Linking Matrix (Intensity Heatmap)")
                 
                 # Pivot table maken
                 matrix = pd.crosstab(res_df['Source Category'], res_df['Target Category'])
-                
-                # Zorg dat alle categorieën op beide assen staan
                 all_cats = sorted(list(set(res_df['Source Category']).union(set(res_df['Target Category']))))
                 matrix = matrix.reindex(index=all_cats, columns=all_cats, fill_value=0)
-                
-                # Totalen toevoegen
-                matrix['OUTBOUND'] = matrix.sum(axis=1)
-                matrix.loc['INBOUND'] = matrix.sum()
 
-                # Styling functie voor heatmap look
-                def style_matrix(v):
-                    if v == 0: return 'color: #444;'
-                    if v > 5: return 'background-color: #007bff; color: white; font-weight: bold;' # High
-                    if v > 2: return 'background-color: #55aaff; color: white;' # Med
-                    if v > 0: return 'background-color: #99ccff; color: #111;' # Low
-                    return ''
-
-                st.dataframe(
-                    matrix.style.map(style_matrix, subset=(matrix.index[:-1], matrix.columns[:-1])),
-                    use_container_width=True
+                # Plotly Heatmap configuratie
+                fig = px.imshow(
+                    matrix,
+                    labels=dict(x="Target Category (Linkt naar)", y="Source Category (Linkt vanaf)", color="Aantal Links"),
+                    x=matrix.columns,
+                    y=matrix.index,
+                    color_continuous_scale='Blues', # Intensity look
+                    aspect="auto",
+                    text_auto=True # Toon getallen in de cellen
                 )
+
+                fig.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    xaxis_title="ONTAVNGENDE CATEGORIE (Target)",
+                    yaxis_title="VERZENDENDE CATEGORIE (Source)",
+                    font=dict(color="white")
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
                 
                 st.divider()
 
@@ -156,22 +160,23 @@ if st.button("🚀 Start Analyse", type="primary"):
                 st.subheader("🏗️ Topic Hubs")
                 hub_ranking = res_df.groupby('Source Category')['Score (%)'].mean().sort_values(ascending=False)
                 for cat in hub_ranking.index:
-                    with st.expander(f"📁 {cat} (Gem. relevantie: {round(hub_ranking[cat])}%)"):
-                        cat_display = res_df[res_df['Source Category'] == cat].copy()
-                        cat_display.loc[cat_display.duplicated('Focus URL'), 'Focus URL'] = ""
+                    avg_s = round(hub_ranking[cat])
+                    with st.expander(f"📁 {cat} (Gem. score: {avg_s}%)"):
+                        cat_disp = res_df[res_df['Source Category'] == cat].copy()
+                        cat_disp.loc[cat_disp.duplicated('Focus URL'), 'Focus URL'] = ""
                         st.dataframe(
-                            cat_display[['Focus URL', 'Target URL', 'Score (%)']].style.map(apply_color, subset=['Score (%)']),
+                            cat_disp[['Focus URL', 'Target URL', 'Score (%)']].style.map(apply_color, subset=['Score (%)']),
                             use_container_width=True
                         )
 
-                # Excel download
+                # Download
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    res_df.to_excel(writer, index=False, sheet_name='Details')
+                    res_df.to_excel(writer, index=False, sheet_name='Data')
                     matrix.to_excel(writer, sheet_name='Matrix')
                 st.download_button("📥 Download Excel", output.getvalue(), "link_finder_results.xlsx")
 
             else:
-                st.warning("Geen resultaten.")
+                st.warning("Geen resultaten gevonden.")
         except Exception as e:
             st.error(f"Fout: {e}")
