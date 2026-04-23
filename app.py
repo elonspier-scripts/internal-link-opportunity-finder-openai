@@ -13,35 +13,20 @@ st.set_page_config(page_title="SEO Link Matrix Pro", layout="wide")
 
 st.markdown("""
     <style>
-    /* Algemene App Styling */
     .stApp { background-color: #000000; color: #ffffff; }
     [data-testid="stSidebar"] { background-color: #050505 !important; border-right: 1px solid #1e1e1e; }
-    
-    /* Input velden */
     .stTextInput>div>div>input, .stTextArea>div>div>textarea {
         background-color: #0a0a0a !important; color: #00a2ff !important; border: 1px solid #222 !important;
     }
-
-    /* Tabel en Matrix (Zwarte achtergronden) */
     .stDataFrame, div[data-testid="stTable"] { 
         background-color: #000 !important; border: 1px solid #1e1e1e !important; border-radius: 4px;
     }
-    
-    /* Titels */
     h1, h2, h3 { color: #00a2ff !important; font-family: 'Inter', sans-serif; }
-    
-    /* De "Glow" Knop */
     .stButton>button { 
         background: linear-gradient(135deg, #0044ff 0%, #00a2ff 100%);
         color: white; border: none; padding: 12px; font-weight: bold; width: 100%;
         box-shadow: 0 4px 20px rgba(0, 162, 255, 0.4);
     }
-    
-    /* Custom Scrollbar voor de Dark Mode vibe */
-    ::-webkit-scrollbar { width: 8px; }
-    ::-webkit-scrollbar-track { background: #000; }
-    ::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
-    ::-webkit-scrollbar-thumb:hover { background: #00a2ff; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -53,7 +38,8 @@ if 'df_results' not in st.session_state:
 
 with st.sidebar:
     st.title("⚙️ Configuratie")
-    api_key = st.text_input("OpenAI API Key", type="password", key="api_key_input")
+    # We gebruiken een key om de API-sleutel te bewaren
+    api_key = st.text_input("OpenAI API Key", type="password", key="api_key_val")
     st.divider()
     score_threshold = st.slider("Minimale Match %", 50, 95, 80) / 100
     links_per_page = st.slider("Aantal links per URL", 1, 10, 5)
@@ -84,19 +70,25 @@ st.title("🔗 SEO Link Intelligence Matrix")
 
 c1, c2 = st.columns([1, 1])
 with c1:
-    file = st.file_uploader("1. Upload Website CSV", type=['csv'], key="csv_file")
+    file = st.file_uploader("1. Upload Website CSV", type=['csv'], key="csv_uploader")
 with c2:
-    urls_txt = st.text_area("2. Focus URL's", key="focus_area", height=100)
+    urls_txt = st.text_area("2. Focus URL's (één per regel)", key="urls_input", height=100)
 
 # ========================================================
 # 5. DE ANALYSE ENGINE
 # ========================================================
 if st.button("🚀 GENEREER INTELLIGENCE MATRIX"):
-    if not (api_key and file and urls_txt):
-        st.error("⚠️ Vul a.u.b. alle velden in.")
+    # Uitgebreide check: welk veld is écht leeg?
+    missing = []
+    if not api_key: missing.append("OpenAI API Key (in de sidebar)")
+    if not file: missing.append("CSV-bestand")
+    if not urls_txt: missing.append("Focus URL's")
+
+    if missing:
+        st.error(f"⚠️ De volgende velden ontbreken: {', '.join(missing)}")
     else:
         try:
-            with st.spinner("Analyseert semantische structuren..."):
+            with st.spinner("Bezig met semantische analyse..."):
                 raw_df = pd.read_csv(file)
                 url_col = raw_df.columns[0]
                 focus_list = [u.strip() for u in urls_txt.split('\n') if u.strip()]
@@ -145,17 +137,16 @@ if st.button("🚀 GENEREER INTELLIGENCE MATRIX"):
 if st.session_state.df_results is not None:
     data = st.session_state.df_results
     
-    # Matrix (Target Hubs = Kolommen = Bovenaan)
+    # Matrix bouwen
     matrix = pd.crosstab(data['From Hub'], data['To Hub'])
     all_hubs = sorted(list(set(data['From Hub']).union(set(data['To Hub']))))
     matrix = matrix.reindex(index=all_hubs, columns=all_hubs, fill_value=0)
 
     st.divider()
     st.subheader("📊 Cross-Linking Matrix (Intensity)")
-    st.info("💡 Klik op een rij om de details te zien.")
+    st.info("💡 Klik op een rij om de details te zien. Donkere cellen = 0 links, Blauwe cellen = actieve kansen.")
 
-    # Matrix met donkere achtergrond en blauwe intensiteit
-    # We gebruiken de 'YlGnBu_r' of 'Blues' gradient maar maskeren de nul-waarden
+    # Matrix met Intensity styling (donker naar blauw)
     st.dataframe(
         matrix.style.background_gradient(cmap='Blues', axis=None, low=0, high=1),
         use_container_width=True,
@@ -164,7 +155,7 @@ if st.session_state.df_results is not None:
         key="matrix_selector"
     )
 
-    # Details per klik
+    # Details tonen na klik
     selection = st.session_state.get("matrix_selector")
     if selection and selection.get("selection", {}).get("rows"):
         selected_idx = selection["selection"]["rows"][0]
@@ -180,22 +171,26 @@ if st.session_state.df_results is not None:
             column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
         )
 
-    # Top-Down Hubs met Percentage Score
+    # 7. Topic Hubs met % in de TITEL
     st.divider()
-    st.subheader("🏗️ Topic Hubs (Overzicht)")
-    for hub in sorted(data['From Hub'].unique()):
-        with st.expander(f"📁 HUB: {hub}"):
-            hub_df = data[data['From Hub'] == hub][['Focus URL', 'To Hub', 'Target URL', 'Score']]
+    st.subheader("🏗️ Topic Hubs Overzicht")
+    
+    # Sorteer op Hub naam
+    hubs = sorted(data['From Hub'].unique())
+    for hub in hubs:
+        hub_df = data[data['From Hub'] == hub]
+        avg_score = round(hub_df['Score'].mean())
+        
+        # Hier voegen we de score toe aan de titel van de expander
+        with st.expander(f"📁 HUB: {hub} ({avg_score}%)"):
             st.dataframe(
-                hub_df.sort_values('Score', ascending=False),
+                hub_df[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values('Score', ascending=False),
                 use_container_width=True,
                 hide_index=True,
                 column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
             )
 
-    # ========================================================
-    # 7. EXPORT EXCEL
-    # ========================================================
+    # 8. Export Excel
     st.divider()
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -203,7 +198,7 @@ if st.session_state.df_results is not None:
         matrix.to_excel(writer, sheet_name='Matrix_Overzicht')
         
     st.download_button(
-        label="📥 Download Resultaten (Excel)",
+        label="📥 Download Volledige Analyse (Excel)",
         data=output.getvalue(),
         file_name="seo_internal_links_matrix.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
