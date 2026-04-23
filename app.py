@@ -6,7 +6,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 import re
 import io
 
+# ========================================================
 # 1. UI CONFIGURATIE (Zwart / Blauw / App-stijl)
+# ========================================================
 st.set_page_config(page_title="Internal Link Matrix Pro", layout="wide")
 
 st.markdown("""
@@ -51,7 +53,6 @@ if 'df_results' not in st.session_state:
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/1243/1243933.png", width=50) # Optioneel icoontje
     st.header("App Config")
-    # Gebruik st.session_state om de key te bewaren
     api_key = st.text_input("OpenAI API Key", type="password", key="api_key_input")
     st.divider()
     score_threshold = st.slider("Minimale Match %", 50, 95, 80) / 100
@@ -83,7 +84,6 @@ st.title("SEO Link Intelligence Matrix")
 
 c1, c2 = st.columns([1, 1])
 with c1:
-    # We gebruiken keys zodat Streamlit de data in het geheugen houdt
     file = st.file_uploader("1. Upload Website CSV (URL kolom = A)", type=['csv'], key="csv_file")
 with c2:
     urls_txt = st.text_area("2. Focus URL's (één per regel)", key="focus_area")
@@ -154,45 +154,54 @@ if st.session_state.df_results is not None:
 
     st.divider()
     st.subheader("📊 Cross-Linking Matrix")
-    st.info("💡 KLIKBAAR: Selecteer een cel in de matrix om de URL's te tonen.")
+    st.info("💡 KLIKBAAR: Selecteer een **rij** in de tabel hieronder om alle uitgaande links van die specifieke hub te bekijken.")
 
-    # Matrix tonen met selectie-trigger
-    # De kleuren (Blues) geven de intensiteit aan
+    # Matrix tonen met single-row selectie
     selection = st.dataframe(
         matrix.style.background_gradient(cmap='Blues', axis=None),
         use_container_width=True,
         on_select="rerun",
-        selection_mode="single_cell",
+        selection_mode="single-row",
         key="matrix_selector"
     )
 
-    # Wanneer er een cel wordt geselecteerd
-    if selection and selection.selection.cells:
-        selected = selection.selection.cells[0]
-        f_cat = matrix.index[selected['row']]
-        t_cat = matrix.columns[selected['column']]
+    # Wanneer er een rij wordt geselecteerd
+    if selection and selection.selection.rows:
+        selected_idx = selection.selection.rows[0]
+        f_cat = matrix.index[selected_idx]
         
-        st.markdown(f"### 🎯 Verbindingen: `{f_cat}` ➔ `{t_cat}`")
+        st.markdown(f"### 🎯 Uitgaande links vanuit: `{f_cat}`")
         
-        filtered = data[(data['From Hub'] == f_cat) & (data['To Hub'] == t_cat)]
+        # Filter op de geselecteerde rij (From Hub)
+        filtered = data[data['From Hub'] == f_cat]
         
         if not filtered.empty:
             def color_score(v):
                 c = '#28a745' if v >= 85 else '#ffc107' if v >= 70 else '#dc3545'
                 return f'color: {c}; font-weight: bold'
 
+            # Tabel met focus URLs, waar ze heen gaan en de target URL
             st.dataframe(
-                filtered[['Focus URL', 'Target URL', 'Score']].sort_values('Score', ascending=False).style.map(color_score, subset=['Score']),
+                filtered[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values('Score', ascending=False).style.map(color_score, subset=['Score']),
                 use_container_width=True,
                 hide_index=True
             )
         else:
-            st.warning("Geen URL-matches voor deze specifieke hub-combinatie.")
-    
-    # Top-down Hub Overzicht
-    st.divider()
-    st.subheader("🏗️ Topic Hubs (Top-Down)")
-    for hub in sorted(data['From Hub'].unique()):
-        with st.expander(f"📁 HUB: {hub}"):
-            hub_df = data[data['From Hub'] == hub][['Focus URL', 'Target URL', 'Score']]
-            st.dataframe(hub_df.style.background_gradient(cmap='Greens', subset=['Score']), use_container_width=True)
+            st.warning("Geen uitgaande links gevonden voor deze hub in de huidige selectie.")
+    else:
+        # Als er niets is aangeklikt, laat dan de Top-down lijst zien (standaard weergave)
+        st.divider()
+        st.subheader("🏗️ Alle Topic Hubs (Top-Down Overzicht)")
+        for hub in sorted(data['From Hub'].unique()):
+            with st.expander(f"📁 HUB: {hub}"):
+                hub_df = data[data['From Hub'] == hub][['Focus URL', 'To Hub', 'Target URL', 'Score']]
+                
+                def color_score_fallback(v):
+                    c = '#28a745' if v >= 85 else '#ffc107' if v >= 70 else '#dc3545'
+                    return f'color: {c}; font-weight: bold'
+                
+                st.dataframe(
+                    hub_df.sort_values('Score', ascending=False).style.map(color_score_fallback, subset=['Score']), 
+                    use_container_width=True, 
+                    hide_index=True
+                )
