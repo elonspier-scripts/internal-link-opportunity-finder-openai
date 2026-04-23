@@ -21,7 +21,7 @@ openai_key = st.sidebar.text_input("OpenAI API Key", type="password", value=st.s
 
 st.sidebar.divider()
 st.sidebar.header("⚙️ Analyse Instellingen")
-min_score = st.sidebar.slider("Minimale Similarity Score (%)", 50, 95, 60) / 100
+min_score = st.sidebar.slider("Minimale Similarity Score (%)", 50, 95, 80) / 100
 max_links = st.sidebar.slider("Max targets per URL", 1, 10, 5)
 
 # ========================================================
@@ -34,9 +34,7 @@ def clean_url_for_text(url):
     return clean_path
 
 def get_embeddings(text_list, api_key):
-    """
-    Genereert embeddings via OpenAI text-embedding-3-small.
-    """
+    """Genereert embeddings via OpenAI text-embedding-3-small."""
     client = OpenAI(api_key=api_key)
     model_name = 'text-embedding-3-small' 
     
@@ -44,7 +42,6 @@ def get_embeddings(text_list, api_key):
     progress_bar = st.progress(0)
     total_items = len(text_list)
     
-    # OpenAI staat grote batches toe, we gebruiken 100 voor voortgangsvisualisatie
     batch_size = 100
     
     for i in range(0, total_items, batch_size):
@@ -54,7 +51,6 @@ def get_embeddings(text_list, api_key):
                 input=batch,
                 model=model_name
             )
-            # Haal de vectoren uit de response data
             batch_embeddings = [data.embedding for data in response.data]
             embeddings.extend(batch_embeddings)
             
@@ -85,14 +81,6 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("Stap 1: Website Data")
-    with st.expander("ℹ️ Hoe lever ik mijn CSV aan?"):
-        st.markdown("""
-        **Zorg dat je CSV aan de volgende eisen voldoet:**
-        1. **Eerste kolom:** Moet de volledige **URL** bevatten.
-        2. **Overige kolommen:** Alle tekst (H1, Content, etc.).
-        3. **Formaat:** CSV gescheiden door komma's.
-        4. **Encoding:** UTF-8.
-        """)
     uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
 
 with col2:
@@ -104,7 +92,7 @@ with col2:
 # ========================================================
 if st.button("🚀 Start Analyse", type="primary"):
     if not openai_key:
-        st.error("⚠️ Voer een OpenAI API Key in de sidebar in.")
+        st.error("⚠️ Voer een OpenAI API Key in.")
     elif not uploaded_file or not focus_urls_input:
         st.error("⚠️ Upload een CSV en voer Focus URL's in.")
     else:
@@ -122,7 +110,7 @@ if st.button("🚀 Start Analyse", type="primary"):
             )
             df['Topical_Category'] = df['combined_text'].apply(extract_topical_category)
 
-            st.info(f"⚙️ Bezig met genereren van embeddings via OpenAI...")
+            st.info(f"⚙️ Bezig met genereren van embeddings...")
             vectors = get_embeddings(df['combined_text'].tolist(), openai_key)
             sim_matrix = cosine_similarity(vectors)
 
@@ -136,27 +124,31 @@ if st.button("🚀 Start Analyse", type="primary"):
                 similarities = sim_matrix[idx_source]
                 sorted_indices = np.argsort(similarities)[::-1]
                 
-                is_first = True 
                 count = 0
-                
                 for idx_target in sorted_indices:
                     target_url = df.iloc[idx_target][url_col]
                     score = float(similarities[idx_target])
 
                     if focus_url != target_url and score >= min_score:
                         results.append({
-                            'Category': source_topic if is_first else "", 
-                            'Focus URL': focus_url if is_first else "",   
+                            'Category': source_topic, # Altijd vullen voor tab-filtering
+                            'Focus URL': focus_url,   # Altijd vullen voor tab-filtering
                             'Interne Link Kans': f"{target_url}",
                             'Score (%)': round(score * 100)
                         })
-                        is_first = False 
                         count += 1
                         if count >= max_links: break
 
             if results:
-                results_df = pd.DataFrame(results)
+                all_results_df = pd.DataFrame(results)
                 st.success(f"✅ Analyse voltooid!")
+
+                # --- SECTIE 1: HOOFDTABEL ---
+                st.subheader("📊 Volledig Overzicht")
+                
+                # Schoon de DataFrame op voor weergave (verberg herhalingen)
+                display_df = all_results_df.copy()
+                display_df.loc[display_df.duplicated(['Focus URL']), ['Category', 'Focus URL']] = ""
 
                 def apply_color(val):
                     if isinstance(val, (int, float, np.integer)):
@@ -166,35 +158,47 @@ if st.button("🚀 Start Analyse", type="primary"):
                     return ''
 
                 st.dataframe(
-                    results_df.style.map(apply_color, subset=['Score (%)']),
+                    display_df.style.map(apply_color, subset=['Score (%)']),
                     use_container_width=True,
                     column_config={"Score (%)": st.column_config.NumberColumn(format="%d%%")}
                 )
+
+                st.divider()
+
+                # --- SECTIE 2: CATEGORIE MATRIX (TABS) ---
+                st.subheader("📁 Analyse per Categorie Matrix")
+                unique_categories = sorted(all_results_df['Category'].unique())
                 
+                if unique_categories:
+                    tabs = st.tabs(unique_categories)
+                    for i, cat in enumerate(unique_categories):
+                        with tabs[i]:
+                            cat_df = all_results_df[all_results_df['Category'] == cat].copy()
+                            # Schoonmaken voor tabel-weergave binnen tab
+                            cat_display = cat_df.copy()
+                            cat_display.loc[cat_display.duplicated('Focus URL'), 'Focus URL'] = ""
+                            
+                            st.markdown(f"**Relevante links binnen de categorie: `{cat}`**")
+                            st.table(cat_display[['Focus URL', 'Interne Link Kans', 'Score (%)']])
+
+                # --- SECTIE 3: DOWNLOAD ---
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    results_df.to_excel(writer, index=False, sheet_name='Link_Kansen')
+                    all_results_df.to_excel(writer, index=False, sheet_name='Link_Kansen')
                     workbook = writer.book
                     worksheet = writer.sheets['Link_Kansen']
-                    
                     wrap_format = workbook.add_format({'text_wrap': True, 'valign': 'top'})
                     worksheet.set_column('A:A', 20)
                     worksheet.set_column('B:C', 50, wrap_format)
                     worksheet.set_column('D:D', 15)
                     
-                    red_txt = workbook.add_format({'font_color': '#dc3545', 'bold': True, 'num_format': '0"%"'})
-                    yel_txt = workbook.add_format({'font_color': '#ffc107', 'bold': True, 'num_format': '0"%"'})
-                    grn_txt = workbook.add_format({'font_color': '#28a745', 'bold': True, 'num_format': '0"%"'})
+                    grn_txt = workbook.add_format({'font_color': '#28a745', 'bold': True})
+                    yel_txt = workbook.add_format({'font_color': '#ffc107', 'bold': True})
+                    red_txt = workbook.add_format({'font_color': '#dc3545', 'bold': True})
 
-                    worksheet.conditional_format(1, 3, len(results_df), 3, {
-                        'type': 'cell', 'criteria': '>=', 'value': 85, 'format': grn_txt
-                    })
-                    worksheet.conditional_format(1, 3, len(results_df), 3, {
-                        'type': 'cell', 'criteria': 'between', 'minimum': 61, 'maximum': 84, 'format': yel_txt
-                    })
-                    worksheet.conditional_format(1, 3, len(results_df), 3, {
-                        'type': 'cell', 'criteria': '<=', 'value': 60, 'format': red_txt
-                    })
+                    worksheet.conditional_format(1, 3, len(all_results_df), 3, {'type': 'cell', 'criteria': '>=', 'value': 85, 'format': grn_txt})
+                    worksheet.conditional_format(1, 3, len(all_results_df), 3, {'type': 'cell', 'criteria': 'between', 'minimum': 61, 'maximum': 84, 'format': yel_txt})
+                    worksheet.conditional_format(1, 3, len(all_results_df), 3, {'type': 'cell', 'criteria': '<=', 'value': 60, 'format': red_txt})
                 
                 st.download_button(
                     label="📥 Download Resultaten (Excel)",
