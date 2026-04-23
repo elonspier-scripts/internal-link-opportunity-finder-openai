@@ -6,169 +6,193 @@ from sklearn.metrics.pairwise import cosine_similarity
 import re
 import io
 
-# 1. Forceer Black Theme & App Look via CSS
-st.set_page_config(page_title="SEO Link Matrix Pro", layout="wide")
+# 1. UI CONFIGURATIE (Zwart / Blauw / App-stijl)
+st.set_page_config(page_title="Internal Link Matrix Pro", layout="wide")
 
 st.markdown("""
     <style>
-    /* Achtergrond en tekst */
+    /* Achtergrond & Tekst */
     .stApp { background-color: #000000; color: #ffffff; }
-    header, .stSidebar { background-color: #000000 !important; }
+    [data-testid="stSidebar"] { background-color: #050505 !important; border-right: 1px solid #1e1e1e; }
     
-    /* Matrix styling */
-    .stDataFrame { border: 1px solid #333; border-radius: 10px; }
-    
-    /* Headers en titels */
-    h1, h2, h3 { color: #0080ff !important; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-    
-    /* Knoppen */
-    .stButton>button { 
-        background-color: #0080ff; color: white; border-radius: 5px; 
-        width: 100%; border: none; font-weight: bold;
+    /* Input velden styling */
+    .stTextInput>div>div>input, .stTextArea>div>div>textarea {
+        background-color: #0a0a0a !important; color: #00a2ff !important; border: 1px solid #222 !important;
+    }
+
+    /* Tabel en Matrix styling */
+    .stDataFrame, div[data-testid="stTable"] { 
+        background-color: #000 !important; border: 1px solid #1e1e1e !important; border-radius: 4px;
     }
     
-    /* Verstop Streamlit branding */
+    /* Headers */
+    h1, h2, h3 { color: #00a2ff !important; font-family: 'Inter', sans-serif; letter-spacing: -0.5px; }
+    
+    /* Grote Actie Knop */
+    .stButton>button { 
+        background: linear-gradient(135deg, #0062ff 0%, #00a2ff 100%);
+        color: white; border: none; padding: 12px; font-weight: bold; width: 100%;
+        box-shadow: 0 4px 15px rgba(0, 162, 255, 0.3);
+    }
+    
+    /* Verstop branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    header {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🔗 SEO Link Intelligence Matrix")
+# ========================================================
+# 2. INITIALISATIE & SIDEBAR
+# ========================================================
+if 'df_results' not in st.session_state:
+    st.session_state.df_results = None
 
-# ========================================================
-# 2. SIDEBAR (CONFIG)
-# ========================================================
 with st.sidebar:
-    st.header("⚙️ App Settings")
-    openai_key = st.text_input("OpenAI API Key", type="password")
-    min_score = st.slider("Min. Score (%)", 50, 95, 80) / 100
-    max_links = st.slider("Links per URL", 1, 10, 5)
+    st.image("https://cdn-icons-png.flaticon.com/512/1243/1243933.png", width=50) # Optioneel icoontje
+    st.header("App Config")
+    # Gebruik st.session_state om de key te bewaren
+    api_key = st.text_input("OpenAI API Key", type="password", key="api_key_input")
+    st.divider()
+    score_threshold = st.slider("Minimale Match %", 50, 95, 80) / 100
+    links_per_page = st.slider("Aantal links per URL", 1, 10, 5)
 
 # ========================================================
 # 3. HELPERS
 # ========================================================
-def clean_url_for_text(url):
+def clean_path(url):
     path = url.split('/')[-1] if not url.strip().endswith('/') else url.split('/')[-2]
     return re.sub(r'[-_/]', ' ', path)
 
-def get_embeddings(text_list, api_key):
-    client = OpenAI(api_key=api_key)
-    response = client.embeddings.create(input=text_list, model='text-embedding-3-small')
-    return np.array([data.embedding for data in response.data])
+def get_embeddings(texts, key):
+    client = OpenAI(api_key=key)
+    res = client.embeddings.create(input=texts, model='text-embedding-3-small')
+    return np.array([d.embedding for d in res.data])
 
-def extract_topical_category(text):
+def get_cat(text):
     words = re.findall(r'\w{4,}', str(text).lower())
-    stop_words = {'deze', 'voor', 'naar', 'met', 'door', 'geen', 'over'}
-    filtered = [w for w in words if w not in stop_words]
+    stop = {'deze', 'voor', 'naar', 'met', 'door', 'geen', 'over', 'mijn'}
+    filtered = [w for w in words if w not in stop]
     unique = list(dict.fromkeys(filtered))
     return " / ".join(unique[:2]).upper() if unique else "ALGEMEEN"
 
 # ========================================================
-# 4. INPUT SECTIE
+# 4. DASHBOARD INPUT
 # ========================================================
-col_input1, col_input2 = st.columns([1, 1])
-with col_input1:
-    uploaded_file = st.file_uploader("Upload Website Export (CSV)", type=['csv'])
-with col_input2:
-    focus_urls_input = st.text_area("Focus URL's", placeholder="Eén URL per regel...")
+st.title("SEO Link Intelligence Matrix")
+
+c1, c2 = st.columns([1, 1])
+with c1:
+    # We gebruiken keys zodat Streamlit de data in het geheugen houdt
+    file = st.file_uploader("1. Upload Website CSV (URL kolom = A)", type=['csv'], key="csv_file")
+with c2:
+    urls_txt = st.text_area("2. Focus URL's (één per regel)", key="focus_area")
 
 # ========================================================
-# 5. CORE LOGICA
+# 5. ENGINE
 # ========================================================
-if st.button("🚀 GENEREER MATRIX & KANSEN"):
-    if not (openai_key and uploaded_file and focus_urls_input):
-        st.error("Vul alle velden in.")
+if st.button("🚀 GENEREER INTELLIGENCE MATRIX"):
+    if not (api_key and file and urls_txt):
+        st.error("⚠️ Actie vereist: Vul de API Key in, upload een bestand en voer URL's in.")
     else:
-        df = pd.read_csv(uploaded_file)
-        url_col = df.columns[0]
-        focus_urls = [x.strip() for x in focus_urls_input.split('\n') if x.strip()]
-        
-        # Voorbereiden data
-        df = df[df[url_col].str.strip() != ""].copy()
-        df['combined_text'] = df[url_col].apply(clean_url_for_text) + " " + df.iloc[:, 1].astype(str)
-        df['Category'] = df['combined_text'].apply(extract_topical_category)
-        url_to_cat = dict(zip(df[url_col], df['Category']))
+        try:
+            with st.spinner("Analyseert semantische structuren..."):
+                raw_df = pd.read_csv(file)
+                url_col = raw_df.columns[0]
+                focus_list = [u.strip() for u in urls_txt.split('\n') if u.strip()]
+                
+                # Pre-processing
+                clean_df = raw_df[raw_df[url_col].str.strip() != ""].copy()
+                clean_df['text'] = clean_df[url_col].apply(clean_path) + " " + clean_df.iloc[:, 1].astype(str)
+                clean_df['Category'] = clean_df['text'].apply(get_cat)
+                cat_lookup = dict(zip(clean_df[url_col], clean_df['Category']))
 
-        # Embeddings & Similarity
-        vectors = get_embeddings(df['combined_text'].tolist(), openai_key)
-        sim_matrix = cosine_similarity(vectors)
+                # Vectors
+                vecs = get_embeddings(clean_df['text'].tolist(), api_key)
+                sims = cosine_similarity(vecs)
 
-        results = []
-        for focus_url in focus_urls:
-            if focus_url not in df[url_col].values: continue
-            idx_source = df.index[df[url_col] == focus_url].tolist()[0]
-            source_topic = df.iloc[idx_source]['Category']
-            
-            similarities = sim_matrix[idx_source]
-            sorted_indices = np.argsort(similarities)[::-1]
-            
-            count = 0
-            for idx_target in sorted_indices:
-                target_url = df.iloc[idx_target][url_col]
-                score = float(similarities[idx_target])
-                if focus_url != target_url and score >= min_score:
-                    results.append({
-                        'From': source_topic,
-                        'Focus URL': focus_url,
-                        'Target URL': target_url,
-                        'To': url_to_cat.get(target_url, "ALGEMEEN"),
-                        'Score': round(score * 100)
-                    })
-                    count += 1
-                    if count >= max_links: break
+                found = []
+                for f_url in focus_list:
+                    if f_url not in clean_df[url_col].values: continue
+                    idx_src = clean_df.index[clean_df[url_col] == f_url].tolist()[0]
+                    src_cat = clean_df.iloc[idx_src]['Category']
+                    
+                    scores = sims[idx_src]
+                    top_idx = np.argsort(scores)[::-1]
+                    
+                    added = 0
+                    for t_idx in top_idx:
+                        t_url = clean_df.iloc[t_idx][url_col]
+                        s = float(scores[t_idx])
+                        if f_url != t_url and s >= score_threshold:
+                            found.append({
+                                'From Hub': src_cat,
+                                'Focus URL': f_url,
+                                'To Hub': cat_lookup.get(t_url, "ALGEMEEN"),
+                                'Target URL': t_url,
+                                'Score': round(s * 100)
+                            })
+                            added += 1
+                            if added >= links_per_page: break
 
-        st.session_state['link_results'] = pd.DataFrame(results)
+                st.session_state.df_results = pd.DataFrame(found)
+                st.rerun()
+
+        except Exception as e:
+            st.error(f"Systeemfout: {e}")
 
 # ========================================================
-# 6. INTERACTIEVE MATRIX & OUTPUT
+# 6. INTERACTIEVE OUTPUT (DE MATRIX)
 # ========================================================
-if 'link_results' in st.session_state:
-    res_df = st.session_state['link_results']
+if st.session_state.df_results is not None:
+    data = st.session_state.df_results
     
-    # Matrix opbouwen
-    matrix = pd.crosstab(res_df['From'], res_df['To'])
-    all_cats = sorted(list(set(res_df['From']).union(set(res_df['To']))))
-    matrix = matrix.reindex(index=all_cats, columns=all_cats, fill_value=0)
+    # Maak de Matrix (Target Hubs = Kolommen = Bovenaan)
+    matrix = pd.crosstab(data['From Hub'], data['To Hub'])
+    all_hubs = sorted(list(set(data['From Hub']).union(set(data['To Hub']))))
+    matrix = matrix.reindex(index=all_hubs, columns=all_hubs, fill_value=0)
 
+    st.divider()
     st.subheader("📊 Cross-Linking Matrix")
-    st.info("💡 Klik op een cel in de matrix om de specifieke URL-kansen hieronder te bekijken.")
+    st.info("💡 KLIKBAAR: Selecteer een cel in de matrix om de URL's te tonen.")
 
-    # De Matrix tonen met selectie-mogelijkheid
-    # De kolommen (Received Categories) staan standaard bovenaan
+    # Matrix tonen met selectie-trigger
+    # De kleuren (Blues) geven de intensiteit aan
     selection = st.dataframe(
         matrix.style.background_gradient(cmap='Blues', axis=None),
         use_container_width=True,
         on_select="rerun",
-        selection_mode="single_cell"
+        selection_mode="single_cell",
+        key="matrix_selector"
     )
 
-    # Als er een cel geklikt wordt
+    # Wanneer er een cel wordt geselecteerd
     if selection and selection.selection.cells:
-        selected_cell = selection.selection.cells[0]
-        row_idx = selected_cell['row']
-        col_idx = selected_cell['column']
+        selected = selection.selection.cells[0]
+        f_cat = matrix.index[selected['row']]
+        t_cat = matrix.columns[selected['column']]
         
-        from_cat = matrix.index[row_idx]
-        to_cat = matrix.columns[col_idx]
+        st.markdown(f"### 🎯 Verbindingen: `{f_cat}` ➔ `{t_cat}`")
         
-        st.divider()
-        st.subheader(f"🔗 Kansrijke links: {from_cat} ➔ {to_cat}")
+        filtered = data[(data['From Hub'] == f_cat) & (data['To Hub'] == t_cat)]
         
-        # Filter de resultaten op basis van de klik
-        filtered_df = res_df[(res_df['From'] == from_cat) & (res_df['To'] == to_cat)]
-        
-        if not filtered_df.empty:
+        if not filtered.empty:
+            def color_score(v):
+                c = '#28a745' if v >= 85 else '#ffc107' if v >= 70 else '#dc3545'
+                return f'color: {c}; font-weight: bold'
+
             st.dataframe(
-                filtered_df[['Focus URL', 'Target URL', 'Score']].sort_values('Score', ascending=False),
+                filtered[['Focus URL', 'Target URL', 'Score']].sort_values('Score', ascending=False).style.map(color_score, subset=['Score']),
                 use_container_width=True,
                 hide_index=True
             )
         else:
-            st.write("Geen directe links gevonden voor deze selectie.")
-    else:
-        # Als er niets geklikt is, toon dan de Topic Hubs onder elkaar
-        st.divider()
-        st.subheader("🏗️ Topic Hubs (Alle resultaten)")
-        for cat in sorted(res_df['From'].unique()):
-            with st.expander(f"📁 Hub: {cat}"):
-                st.dataframe(res_df[res_df['From'] == cat][['Focus URL', 'Target URL', 'Score']], use_container_width=True)
+            st.warning("Geen URL-matches voor deze specifieke hub-combinatie.")
+    
+    # Top-down Hub Overzicht
+    st.divider()
+    st.subheader("🏗️ Topic Hubs (Top-Down)")
+    for hub in sorted(data['From Hub'].unique()):
+        with st.expander(f"📁 HUB: {hub}"):
+            hub_df = data[data['From Hub'] == hub][['Focus URL', 'Target URL', 'Score']]
+            st.dataframe(hub_df.style.background_gradient(cmap='Greens', subset=['Score']), use_container_width=True)
