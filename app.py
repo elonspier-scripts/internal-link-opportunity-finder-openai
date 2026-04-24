@@ -63,6 +63,13 @@ def get_cat(text):
     unique = list(dict.fromkeys(filtered))
     return " / ".join(unique[:2]).upper() if unique else "ALGEMEEN"
 
+def color_score(v):
+    """Bepaalt de kleur van de percentage-scores in de tabellen"""
+    if not isinstance(v, (int, float)): return ''
+    if v >= 85: return 'color: #28a745; font-weight: bold;'
+    elif v >= 70: return 'color: #ffc107; font-weight: bold;'
+    else: return 'color: #dc3545; font-weight: bold;'
+
 # ========================================================
 # 4. DASHBOARD INPUT
 # ========================================================
@@ -78,7 +85,6 @@ with c2:
 # 5. DE ANALYSE ENGINE
 # ========================================================
 if st.button("🚀 GENEREER INTELLIGENCE MATRIX"):
-    # Uitgebreide check: welk veld is écht leeg?
     missing = []
     if not api_key: missing.append("OpenAI API Key (in de sidebar)")
     if not file: missing.append("CSV-bestand")
@@ -144,18 +150,29 @@ if st.session_state.df_results is not None:
 
     st.divider()
     st.subheader("📊 Cross-Linking Matrix (Intensity)")
-    st.info("💡 Klik op een rij om de details te zien. Donkere cellen = 0 links, Blauwe cellen = actieve kansen.")
+    st.info("💡 Klik op een rij (de verwijzende Hub) om de link-kansen te bekijken.")
 
-    # Matrix met Intensity styling (donker naar blauw)
+    # Custom Matrix Styling (Zonder matplotlib, perfect voor de App Dark Mode)
+    max_val = matrix.values.max() if matrix.values.max() > 0 else 1
+    def style_matrix_cells(val):
+        if val == 0:
+            return 'background-color: #0a0a0a; color: #222222; text-align: center;'
+        else:
+            intensity = 0.2 + 0.8 * (val / max_val)
+            return f'background-color: rgba(0, 162, 255, {intensity}); color: #ffffff; font-weight: bold; text-align: center;'
+
+    styled_matrix = matrix.style.map(style_matrix_cells)
+
+    # Matrix weergeven
     st.dataframe(
-        matrix.style.background_gradient(cmap='Blues', axis=None, low=0, high=1),
+        styled_matrix,
         use_container_width=True,
         on_select="rerun",
         selection_mode="single-row",
         key="matrix_selector"
     )
 
-    # Details tonen na klik
+    # Details tonen na klik op matrix
     selection = st.session_state.get("matrix_selector")
     if selection and selection.get("selection", {}).get("rows"):
         selected_idx = selection["selection"]["rows"][0]
@@ -164,33 +181,47 @@ if st.session_state.df_results is not None:
         st.markdown(f"### 🎯 Uitgaande links vanuit: `{f_cat}`")
         filtered = data[data['From Hub'] == f_cat]
         
+        # Sorteer op Focus URL en maak duplicates leeg
+        display_filtered = filtered[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+        display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
+        
+        # Tabel weergeven met de Score-kleuren toegepast
         st.dataframe(
-            filtered[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values('Score', ascending=False),
+            display_filtered.style.map(color_score, subset=['Score']),
             use_container_width=True,
             hide_index=True,
             column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
         )
 
-    # 7. Topic Hubs met % in de TITEL
+    # ========================================================
+    # 7. TOPIC HUBS OVERZICHT
+    # ========================================================
     st.divider()
     st.subheader("🏗️ Topic Hubs Overzicht")
     
-    # Sorteer op Hub naam
     hubs = sorted(data['From Hub'].unique())
     for hub in hubs:
         hub_df = data[data['From Hub'] == hub]
         avg_score = round(hub_df['Score'].mean())
         
-        # Hier voegen we de score toe aan de titel van de expander
+        # Score in de titel
         with st.expander(f"📁 HUB: {hub} ({avg_score}%)"):
+            
+            # Sorteer en verberg duplicates
+            display_hub = hub_df[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+            display_hub.loc[display_hub.duplicated('Focus URL'), 'Focus URL'] = ""
+            
+            # Tabel weergeven met de Score-kleuren toegepast
             st.dataframe(
-                hub_df[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values('Score', ascending=False),
+                display_hub.style.map(color_score, subset=['Score']),
                 use_container_width=True,
                 hide_index=True,
                 column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
             )
 
-    # 8. Export Excel
+    # ========================================================
+    # 8. EXPORT EXCEL
+    # ========================================================
     st.divider()
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
