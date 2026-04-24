@@ -5,6 +5,7 @@ from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 import re
 import io
+import plotly.express as px
 
 # ========================================================
 # 1. UI CONFIGURATIE (Deep Black / Cyber Blue)
@@ -38,7 +39,6 @@ if 'df_results' not in st.session_state:
 
 with st.sidebar:
     st.title("⚙️ Configuratie")
-    # We gebruiken een key om de API-sleutel te bewaren
     api_key = st.text_input("OpenAI API Key", type="password", key="api_key_val")
     st.divider()
     score_threshold = st.slider("Minimale Match %", 50, 95, 80) / 100
@@ -78,9 +78,8 @@ with c2:
 # 5. DE ANALYSE ENGINE
 # ========================================================
 if st.button("🚀 GENEREER INTELLIGENCE MATRIX"):
-    # Uitgebreide check: welk veld is écht leeg?
     missing = []
-    if not api_key: missing.append("OpenAI API Key (in de sidebar)")
+    if not api_key: missing.append("OpenAI API Key")
     if not file: missing.append("CSV-bestand")
     if not urls_txt: missing.append("Focus URL's")
 
@@ -132,56 +131,77 @@ if st.button("🚀 GENEREER INTELLIGENCE MATRIX"):
             st.error(f"Systeemfout: {e}")
 
 # ========================================================
-# 6. INTERACTIEVE MATRIX & OUTPUT
+# 6. INTERACTIEVE MATRIX (PLOTLY) & OUTPUT
 # ========================================================
 if st.session_state.df_results is not None:
     data = st.session_state.df_results
     
-    # Matrix bouwen
+    # Data voorbereiden voor de Matrix
     matrix = pd.crosstab(data['From Hub'], data['To Hub'])
     all_hubs = sorted(list(set(data['From Hub']).union(set(data['To Hub']))))
     matrix = matrix.reindex(index=all_hubs, columns=all_hubs, fill_value=0)
 
     st.divider()
-    st.subheader("📊 Cross-Linking Matrix (Intensity)")
-    st.info("💡 Klik op een rij om de details te zien. Donkere cellen = 0 links, Blauwe cellen = actieve kansen.")
+    st.subheader("📊 Cross-Linking Matrix (Plotly)")
+    st.info("💡 KLIKBAAR: Klik op een specifieke cel in de grafiek om alléén de links tussen die twee categorieën te zien.")
 
-    # Matrix met Intensity styling (donker naar blauw)
-    st.dataframe(
-        matrix.style.background_gradient(cmap='Blues', axis=None, low=0, high=1),
-        use_container_width=True,
-        on_select="rerun",
-        selection_mode="single-row",
-        key="matrix_selector"
+    # Maak de Plotly Heatmap
+    fig = px.imshow(
+        matrix,
+        text_auto=True, # Toont getallen in de cellen
+        color_continuous_scale='Blues',
+        aspect="auto"
+    )
+    
+    # Donkere styling voor Plotly passend bij de app
+    fig.update_layout(
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font_color='#ffffff',
+        xaxis_title="Ontvangende Hub (Target)",
+        yaxis_title="Verwijzende Hub (Source)",
+        margin=dict(l=0, r=0, t=30, b=0)
     )
 
-    # Details tonen na klik
-    selection = st.session_state.get("matrix_selector")
-    if selection and selection.get("selection", {}).get("rows"):
-        selected_idx = selection["selection"]["rows"][0]
-        f_cat = matrix.index[selected_idx]
+    # Toon Plotly en vang de klik op (vereist Streamlit >= 1.35.0)
+    selection = st.plotly_chart(
+        fig, 
+        use_container_width=True, 
+        on_select="rerun",
+        key="plotly_matrix"
+    )
+
+    # Verwerk de cel-klik
+    if selection and selection.get("selection", {}).get("points"):
+        # Plotly stuurt de x en y coördinaten van de geklikte cel terug
+        point = selection["selection"]["points"][0]
+        f_cat = point["y"] # y-as = From Hub
+        t_cat = point["x"] # x-as = To Hub
         
-        st.markdown(f"### 🎯 Uitgaande links vanuit: `{f_cat}`")
-        filtered = data[data['From Hub'] == f_cat]
+        st.markdown(f"### 🎯 Specifieke links: `{f_cat}` ➔ `{t_cat}`")
         
-        st.dataframe(
-            filtered[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values('Score', ascending=False),
-            use_container_width=True,
-            hide_index=True,
-            column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
-        )
+        # Filter dataframe exact op de kruising
+        filtered = data[(data['From Hub'] == f_cat) & (data['To Hub'] == t_cat)]
+        
+        if not filtered.empty:
+            st.dataframe(
+                filtered[['Focus URL', 'Target URL', 'Score']].sort_values('Score', ascending=False),
+                use_container_width=True,
+                hide_index=True,
+                column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+            )
+        else:
+            st.warning(f"Er zijn op dit moment geen links van {f_cat} naar {t_cat}.")
 
     # 7. Topic Hubs met % in de TITEL
     st.divider()
     st.subheader("🏗️ Topic Hubs Overzicht")
     
-    # Sorteer op Hub naam
     hubs = sorted(data['From Hub'].unique())
     for hub in hubs:
         hub_df = data[data['From Hub'] == hub]
         avg_score = round(hub_df['Score'].mean())
         
-        # Hier voegen we de score toe aan de titel van de expander
         with st.expander(f"📁 HUB: {hub} ({avg_score}%)"):
             st.dataframe(
                 hub_df[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values('Score', ascending=False),
