@@ -38,7 +38,6 @@ if 'df_results' not in st.session_state:
 
 with st.sidebar:
     st.title("⚙️ Configuratie")
-    # We gebruiken een key om de API-sleutel te bewaren
     api_key = st.text_input("OpenAI API Key", type="password", key="api_key_val")
     st.divider()
     score_threshold = st.slider("Minimale Match %", 50, 95, 80) / 100
@@ -64,7 +63,6 @@ def get_cat(text):
     return " / ".join(unique[:2]).upper() if unique else "ALGEMEEN"
 
 def color_score(v):
-    """Bepaalt de kleur van de percentage-scores in de tabellen"""
     if not isinstance(v, (int, float)): return ''
     if v >= 85: return 'color: #28a745; font-weight: bold;'
     elif v >= 70: return 'color: #ffc107; font-weight: bold;'
@@ -86,15 +84,15 @@ with c2:
 # ========================================================
 if st.button("🚀 GENEREER INTELLIGENCE MATRIX"):
     missing = []
-    if not api_key: missing.append("OpenAI API Key (in de sidebar)")
+    if not api_key: missing.append("OpenAI API Key")
     if not file: missing.append("CSV-bestand")
     if not urls_txt: missing.append("Focus URL's")
 
     if missing:
-        st.error(f"⚠️ De volgende velden ontbreken: {', '.join(missing)}")
+        st.error(f"⚠️ Velden ontbreken: {', '.join(missing)}")
     else:
         try:
-            with st.spinner("Bezig met semantische analyse..."):
+            with st.spinner("Semantische analyse bezig..."):
                 raw_df = pd.read_csv(file)
                 url_col = raw_df.columns[0]
                 focus_list = [u.strip() for u in urls_txt.split('\n') if u.strip()]
@@ -133,9 +131,8 @@ if st.button("🚀 GENEREER INTELLIGENCE MATRIX"):
 
                 st.session_state.df_results = pd.DataFrame(found)
                 st.rerun()
-
         except Exception as e:
-            st.error(f"Systeemfout: {e}")
+            st.error(f"Fout: {e}")
 
 # ========================================================
 # 6. INTERACTIEVE MATRIX & OUTPUT
@@ -149,88 +146,84 @@ if st.session_state.df_results is not None:
     matrix = matrix.reindex(index=all_hubs, columns=all_hubs, fill_value=0)
 
     st.divider()
-    st.subheader("📊 Cross-Linking Matrix (Intensity)")
-    st.info("💡 Klik op een rij (de verwijzende Hub) om de link-kansen te bekijken.")
+    st.subheader("📊 Cross-Linking Matrix")
 
-    # Custom Matrix Styling (Zonder matplotlib, perfect voor de App Dark Mode)
+    # Matrix Styling (Zwart, gecentreerd, blauwe intensiteit)
     max_val = matrix.values.max() if matrix.values.max() > 0 else 1
     def style_matrix_cells(val):
-        if val == 0:
-            return 'background-color: #0a0a0a; color: #222222; text-align: center;'
-        else:
-            intensity = 0.2 + 0.8 * (val / max_val)
-            return f'background-color: rgba(0, 162, 255, {intensity}); color: #ffffff; font-weight: bold; text-align: center;'
+        if val == 0: return 'background-color: #050505; color: #222; text-align: center;'
+        intensity = 0.3 + 0.7 * (val / max_val)
+        return f'background-color: rgba(0, 162, 255, {intensity}); color: white; font-weight: bold; text-align: center;'
 
-    styled_matrix = matrix.style.map(style_matrix_cells)
-
-    # Matrix weergeven
     st.dataframe(
-        styled_matrix,
+        matrix.style.applymap(style_matrix_cells),
         use_container_width=True,
         on_select="rerun",
         selection_mode="single-row",
         key="matrix_selector"
     )
 
-    # Details tonen na klik op matrix
+    # Details tonen na klik
     selection = st.session_state.get("matrix_selector")
     if selection and selection.get("selection", {}).get("rows"):
         selected_idx = selection["selection"]["rows"][0]
         f_cat = matrix.index[selected_idx]
         
         st.markdown(f"### 🎯 Uitgaande links vanuit: `{f_cat}`")
-        filtered = data[data['From Hub'] == f_cat]
+        filtered = data[data['From Hub'] == f_cat].copy()
         
-        # Sorteer op Focus URL en maak duplicates leeg
-        display_filtered = filtered[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
-        display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
+        # Unieke Focus URL weergave logica
+        disp_filtered = filtered[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+        disp_filtered.loc[disp_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
         
-        # Tabel weergeven met de Score-kleuren toegepast
         st.dataframe(
-            display_filtered.style.map(color_score, subset=['Score']),
+            disp_filtered.style.applymap(color_score, subset=['Score']),
             use_container_width=True,
             hide_index=True,
             column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
         )
 
-    # ========================================================
-    # 7. TOPIC HUBS OVERZICHT
-    # ========================================================
+    # 7. Topic Hubs Overzicht
     st.divider()
     st.subheader("🏗️ Topic Hubs Overzicht")
     
-    hubs = sorted(data['From Hub'].unique())
-    for hub in hubs:
-        hub_df = data[data['From Hub'] == hub]
+    for hub in sorted(data['From Hub'].unique()):
+        hub_df = data[data['From Hub'] == hub].copy()
         avg_score = round(hub_df['Score'].mean())
         
-        # Score in de titel
         with st.expander(f"📁 HUB: {hub} ({avg_score}%)"):
+            disp_hub = hub_df[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+            disp_hub.loc[disp_hub.duplicated('Focus URL'), 'Focus URL'] = ""
             
-            # Sorteer en verberg duplicates
-            display_hub = hub_df[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
-            display_hub.loc[display_hub.duplicated('Focus URL'), 'Focus URL'] = ""
-            
-            # Tabel weergeven met de Score-kleuren toegepast
             st.dataframe(
-                display_hub.style.map(color_score, subset=['Score']),
+                disp_hub.style.applymap(color_score, subset=['Score']),
                 use_container_width=True,
                 hide_index=True,
                 column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
             )
 
     # ========================================================
-    # 8. EXPORT EXCEL
+    # 8. EXPORT CSV (Met unieke Focus URL en % score)
     # ========================================================
     st.divider()
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        data.to_excel(writer, index=False, sheet_name='Link_Kansen')
-        matrix.to_excel(writer, sheet_name='Matrix_Overzicht')
-        
+    
+    # Voorbereiden export-dataframe
+    export_df = data.copy()
+    export_df = export_df.sort_values(by=['From Hub', 'Focus URL', 'Score'], ascending=[True, True, False])
+    
+    # Formatteer score naar string met %
+    export_df['Score'] = export_df['Score'].apply(lambda x: f"{round(x)}%")
+    
+    # Maak Focus URL kolom 'schoon' (alleen eerste weergave per groep)
+    export_df.loc[export_df.duplicated(['From Hub', 'Focus URL']), 'Focus URL'] = ""
+    
+    # Buffer maken voor CSV
+    csv_buffer = io.StringIO()
+    export_df.to_csv(csv_buffer, index=False, sep=';') # Puntkomma voor makkelijk openen in NL Excel
+    
     st.download_button(
-        label="📥 Download Volledige Analyse (Excel)",
-        data=output.getvalue(),
-        file_name="seo_internal_links_matrix.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        label="📥 Download Resultaten (CSV)",
+        data=csv_buffer.getvalue(),
+        file_name="internal_link_opportunities.csv",
+        mime="text/csv"
     )
