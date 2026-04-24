@@ -3,4 +3,5 @@ pandas
 numpy
 openai
 scikit-learn
-matplotlib
+xlsxwriter
+plotly
