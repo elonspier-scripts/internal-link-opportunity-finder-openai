@@ -217,10 +217,12 @@ with tab_tool:
         st.divider()
         st.subheader("🏗️ Topic Hubs Overzicht")
         
-        hubs = sorted(data['From Hub'].unique())
-        for hub in hubs:
+        # Sorteer hubs top-down op basis van gemiddelde score
+        hub_avg_scores = data.groupby('From Hub')['Score'].mean().sort_values(ascending=False)
+        
+        for hub in hub_avg_scores.index:
             hub_df = data[data['From Hub'] == hub]
-            avg_score = round(hub_df['Score'].mean())
+            avg_score = round(hub_avg_scores[hub])
             
             with st.expander(f"📁 HUB: {hub} ({avg_score}%)"):
                 display_hub = hub_df[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
@@ -239,7 +241,11 @@ with tab_tool:
         export_df = data.copy()
         export_df = export_df.sort_values(by=['From Hub', 'Focus URL', 'Score'], ascending=[True, True, False])
         export_df['Score'] = export_df['Score'].apply(lambda x: f"{round(x)}%")
+        
+        # Maak Focus URL leeg voor herhalende waarden
         export_df.loc[export_df.duplicated(subset=['From Hub', 'Focus URL']), 'Focus URL'] = ""
+        # Maak From Hub leeg voor herhalende waarden (toont de hub slechts 1x per groep)
+        export_df.loc[export_df.duplicated(subset=['From Hub']), 'From Hub'] = ""
         
         csv_buffer = io.StringIO()
         export_df.to_csv(csv_buffer, index=False, sep=';')
