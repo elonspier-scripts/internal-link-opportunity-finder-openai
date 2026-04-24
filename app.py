@@ -212,28 +212,53 @@ with tab_tool:
             )
 
         # ========================================================
-        # 7. TOPIC HUBS OVERZICHT
+        # 7. TOPIC HUBS OVERZICHT (Indeling op Sterkte)
         # ========================================================
         st.divider()
         st.subheader("🏗️ Topic Hubs Overzicht")
-        
-        # Sorteer hubs top-down op basis van gemiddelde score
-        hub_avg_scores = data.groupby('From Hub')['Score'].mean().sort_values(ascending=False)
-        
-        for hub in hub_avg_scores.index:
-            hub_df = data[data['From Hub'] == hub]
-            avg_score = round(hub_avg_scores[hub])
-            
-            with st.expander(f"📁 HUB: {hub} ({avg_score}%)"):
-                display_hub = hub_df[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
-                display_hub.loc[display_hub.duplicated('Focus URL'), 'Focus URL'] = ""
-                st.dataframe(
-                    display_hub.style.map(color_score, subset=['Score']),
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
-                )
 
+        # Bereken de gemiddelde scores per hub
+        hub_stats = data.groupby('From Hub')['Score'].mean().sort_values(ascending=False)
+
+        # Maak de drie tabbladen aan
+        tab_strong, tab_avg, tab_weak = st.tabs([
+            "🟢 Sterk (>= 85%)", 
+            "🟡 Gemiddeld (70-84%)", 
+            "🔴 Zwak (< 70%)"
+        ])
+
+        # Hulpfunctie om de hubs binnen een tabblad te tonen
+        def render_hub_group(hubs_series):
+            if hubs_series.empty:
+                st.info("Geen hubs gevonden voor deze categorie.")
+            else:
+                for hub, avg_score in hubs_series.items():
+                    hub_df = data[data['From Hub'] == hub]
+                    with st.expander(f"📁 HUB: {hub} ({round(avg_score)}%)"):
+                        # Sorteer op Focus URL en score, verberg duplicaten
+                        display_hub = hub_df[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+                        display_hub.loc[display_hub.duplicated('Focus URL'), 'Focus URL'] = ""
+                        
+                        st.dataframe(
+                            display_hub.style.map(color_score, subset=['Score']),
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                        )
+
+        # Deel de hubs in op basis van de kleurenschaal/gemiddelde score
+        with tab_strong:
+            strong_hubs = hub_stats[hub_stats >= 85]
+            render_hub_group(strong_hubs)
+
+        with tab_avg:
+            avg_hubs = hub_stats[(hub_stats >= 70) & (hub_stats < 85)]
+            render_hub_group(avg_hubs)
+
+        with tab_weak:
+            weak_hubs = hub_stats[hub_stats < 70]
+            render_hub_group(weak_hubs)
+        
         # ========================================================
         # 8. EXPORT CSV
         # ========================================================
