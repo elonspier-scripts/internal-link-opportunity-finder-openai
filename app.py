@@ -150,7 +150,7 @@ if st.session_state.df_results is not None:
 
     st.divider()
     st.subheader("📊 Cross-Linking Matrix (Intensity)")
-    st.info("💡 Klik op een rij (de verwijzende Hub) om de link-kansen te bekijken.")
+    st.info("💡 Klik op een rij om de details te zien. Donkere cellen = 0 links, Blauwe cellen = actieve kansen.")
 
     # Custom Matrix Styling (Zonder matplotlib, perfect voor de App Dark Mode)
     max_val = matrix.values.max() if matrix.values.max() > 0 else 1
@@ -220,17 +220,27 @@ if st.session_state.df_results is not None:
             )
 
     # ========================================================
-    # 8. EXPORT EXCEL
+    # 8. EXPORT CSV
     # ========================================================
     st.divider()
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        data.to_excel(writer, index=False, sheet_name='Link_Kansen')
-        matrix.to_excel(writer, sheet_name='Matrix_Overzicht')
-        
+    
+    # Voorbereiden export-dataframe
+    export_df = data.copy()
+    export_df = export_df.sort_values(by=['From Hub', 'Focus URL', 'Score'], ascending=[True, True, False])
+    
+    # Formatteer score naar string met %
+    export_df['Score'] = export_df['Score'].apply(lambda x: f"{round(x)}%")
+    
+    # Maak Focus URL kolom leeg voor herhalende waarden binnen dezelfde Hub
+    export_df.loc[export_df.duplicated(subset=['From Hub', 'Focus URL']), 'Focus URL'] = ""
+    
+    # Buffer maken voor CSV
+    csv_buffer = io.StringIO()
+    export_df.to_csv(csv_buffer, index=False, sep=';')
+    
     st.download_button(
-        label="📥 Download Volledige Analyse (Excel)",
-        data=output.getvalue(),
-        file_name="seo_internal_links_matrix.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        label="📥 Download Resultaten (CSV)",
+        data=csv_buffer.getvalue(),
+        file_name="seo_internal_links_matrix.csv",
+        mime="text/csv"
     )
