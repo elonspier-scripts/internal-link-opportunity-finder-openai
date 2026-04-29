@@ -52,13 +52,14 @@ def clean_path(url):
     return re.sub(r'[-_/]', ' ', path)
 
 def get_folder(url):
-    """Extraheert de eerste hoofdmap uit de URL"""
+    """Extraheert de eerste hoofdmap (top-level folder) uit een URL"""
     try:
         path = urlparse(str(url)).path
         clean_p = path.strip('/')
         if not clean_p:
             return '/'
-        return f"/{clean_p.split('/')[0]}/"
+        first_folder = clean_p.split('/')[0]
+        return f"/{first_folder}/"
     except:
         return "/"
 
@@ -85,7 +86,7 @@ def color_score(v):
 # ========================================================
 st.title("🔗 SEO Link Intelligence Matrix")
 
-tab_tool, tab_folder, tab_inst = st.tabs(["🚀 Analyse Tool", "📂 Folder Matrix", "📖 Instructies"])
+tab_tool, tab_inst = st.tabs(["🚀 Analyse Tool", "📖 Instructies"])
 
 with tab_inst:
     st.header("Hoe gebruik je deze tool?")
@@ -93,18 +94,18 @@ with tab_inst:
     ### 1. Voorbereiding van het CSV-bestand
     Lever een CSV-bestand aan (bijv. een export uit Screaming Frog of een eigen lijst) met de volgende structuur:
     * **Kolom A (eerste kolom):** Moet de volledige URL's bevatten.
-    * **Overige kolommen:** Hier mag content staan zoals de Page Title, H1 of de hoofdtekst. De tool gebruikt deze data om de context te begrijpen.
+    * **Overige kolommen:** Hier mag content staan zoals de Page Title, H1 of de hoofdtekst.
     
     ### 2. OpenAI API Key
-    Voer je eigen OpenAI API Key in de sidebar aan de linkerkant in. De tool maakt gebruik van de `text-embedding-3-small` engine voor razendsnelle en goedkope analyses.
+    Voer je eigen OpenAI API Key in de sidebar in.
 
     ### 3. Focus URL's
-    Plak in het tekstveld de URL's die je wilt analyseren. Dit zijn de pagina's waarvoor je interne linkmogelijkheden wilt vinden. Gebruik één URL per regel.
+    Plak in het tekstveld de URL's die je wilt analyseren. Gebruik één URL per regel.
 
     ### 4. De Matrix gebruiken
     * Na de analyse verschijnt een **Cross-Linking Matrix**. 
-    * De matrix is standaard gesorteerd op relevantie (de hubs met de meeste kansen staan bovenaan).
-    * Klik op een **rij** in de matrix om direct alle specifieke link-kansen voor die hub te openen.
+    * De matrix is standaard gesorteerd op relevantie.
+    * Klik op een **rij** in de matrix om direct alle specifieke link-kansen te openen.
     """)
 
 with tab_tool:
@@ -132,18 +133,13 @@ with tab_tool:
                     url_col = raw_df.columns[0]
                     focus_list = [u.strip() for u in urls_txt.split('\n') if u.strip()]
                     
-                    # --- FIX VOOR LEGE CELLEN (NaN) ---
                     clean_df = raw_df.dropna(subset=[url_col]).copy()
                     clean_df = clean_df.fillna("")
                     clean_df = clean_df[clean_df[url_col].astype(str).str.strip() != ""]
-                    # ----------------------------------
                     
                     clean_df['text'] = clean_df[url_col].astype(str).apply(clean_path) + " " + clean_df.iloc[:, 1].astype(str)
                     clean_df['Category'] = clean_df['text'].apply(get_cat)
-                    clean_df['Folder'] = clean_df[url_col].apply(get_folder)
-                    
                     cat_lookup = dict(zip(clean_df[url_col], clean_df['Category']))
-                    folder_lookup = dict(zip(clean_df[url_col], clean_df['Folder']))
 
                     vecs = get_embeddings(clean_df['text'].tolist(), api_key)
                     sims = cosine_similarity(vecs)
@@ -153,7 +149,6 @@ with tab_tool:
                         if f_url not in clean_df[url_col].values: continue
                         idx_src = clean_df.index[clean_df[url_col] == f_url].tolist()[0]
                         src_cat = clean_df.iloc[idx_src]['Category']
-                        src_folder = clean_df.iloc[idx_src]['Folder']
                         
                         scores = sims[idx_src]
                         top_idx = np.argsort(scores)[::-1]
@@ -165,10 +160,10 @@ with tab_tool:
                             if f_url != t_url and s >= score_threshold:
                                 found.append({
                                     'From Hub': src_cat,
-                                    'From Folder': src_folder,
+                                    'From Folder': get_folder(f_url),
                                     'Focus URL': f_url,
                                     'To Hub': cat_lookup.get(t_url, "ALGEMEEN"),
-                                    'To Folder': folder_lookup.get(t_url, "/"),
+                                    'To Folder': get_folder(t_url),
                                     'Target URL': t_url,
                                     'Score': s * 100
                                 })
@@ -187,52 +182,88 @@ with tab_tool:
     if st.session_state.df_results is not None:
         data = st.session_state.df_results
         
-        # Matrix bouwen
-        matrix = pd.crosstab(data['From Hub'], data['To Hub'])
-        
-        # Sorteren op Totaal (Descending)
-        row_order = matrix.sum(axis=1).sort_values(ascending=False).index
-        col_order = matrix.sum(axis=0).sort_values(ascending=False).index
-        matrix = matrix.reindex(index=row_order, columns=col_order, fill_value=0)
-
         st.divider()
-        st.subheader("📊 Cross-Linking Matrix (Intensity)")
+        st.subheader("📊 Cross-Linking Matrices (Intensity)")
         st.info("💡 Klik op een rij om de details te zien. De matrix is gesorteerd op volume.")
 
-        max_val = matrix.values.max() if matrix.values.max() > 0 else 1
-        def style_matrix_cells(val):
+        tab_matrix_hub, tab_matrix_folder = st.tabs(["🗂️ Semantische Hub Matrix", "📁 Technische Folder Matrix"])
+
+        def style_matrix_cells(val, mx_val):
             if val == 0:
                 return 'background-color: #0a0a0a; color: #222222; text-align: center;'
             else:
-                intensity = 0.2 + 0.8 * (val / max_val)
+                intensity = 0.2 + 0.8 * (val / mx_val)
                 return f'background-color: rgba(0, 162, 255, {intensity}); color: #ffffff; font-weight: bold; text-align: center;'
 
-        styled_matrix = matrix.style.map(style_matrix_cells)
+        # --- TAB 1: HUB MATRIX ---
+        with tab_matrix_hub:
+            matrix_hub = pd.crosstab(data['From Hub'], data['To Hub'])
+            row_order_hub = matrix_hub.sum(axis=1).sort_values(ascending=False).index
+            col_order_hub = matrix_hub.sum(axis=0).sort_values(ascending=False).index
+            matrix_hub = matrix_hub.reindex(index=row_order_hub, columns=col_order_hub, fill_value=0)
 
-        st.dataframe(
-            styled_matrix,
-            width='stretch',
-            on_select="rerun",
-            selection_mode="single-row",
-            key="matrix_selector"
-        )
+            max_val_hub = matrix_hub.values.max() if matrix_hub.values.max() > 0 else 1
+            styled_matrix_hub = matrix_hub.style.map(lambda v: style_matrix_cells(v, max_val_hub))
 
-        selection = st.session_state.get("matrix_selector")
-        if selection and selection.get("selection", {}).get("rows"):
-            selected_idx = selection["selection"]["rows"][0]
-            f_cat = matrix.index[selected_idx]
-            
-            st.markdown(f"### 🎯 Uitgaande links vanuit: `{f_cat}`")
-            filtered = data[data['From Hub'] == f_cat]
-            display_filtered = filtered[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
-            display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
-            
             st.dataframe(
-                display_filtered.style.map(color_score, subset=['Score']),
+                styled_matrix_hub,
                 width='stretch',
-                hide_index=True,
-                column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                on_select="rerun",
+                selection_mode="single-row",
+                key="matrix_selector_hub"
             )
+
+            selection_hub = st.session_state.get("matrix_selector_hub")
+            if selection_hub and selection_hub.get("selection", {}).get("rows"):
+                selected_idx = selection_hub["selection"]["rows"][0]
+                f_cat = matrix_hub.index[selected_idx]
+                
+                st.markdown(f"### 🎯 Uitgaande links vanuit Hub: `{f_cat}`")
+                filtered = data[data['From Hub'] == f_cat]
+                display_filtered = filtered[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+                display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
+                
+                st.dataframe(
+                    display_filtered.style.map(color_score, subset=['Score']),
+                    width='stretch',
+                    hide_index=True,
+                    column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                )
+
+        # --- TAB 2: FOLDER MATRIX ---
+        with tab_matrix_folder:
+            matrix_folder = pd.crosstab(data['From Folder'], data['To Folder'])
+            row_order_folder = matrix_folder.sum(axis=1).sort_values(ascending=False).index
+            col_order_folder = matrix_folder.sum(axis=0).sort_values(ascending=False).index
+            matrix_folder = matrix_folder.reindex(index=row_order_folder, columns=col_order_folder, fill_value=0)
+
+            max_val_folder = matrix_folder.values.max() if matrix_folder.values.max() > 0 else 1
+            styled_matrix_folder = matrix_folder.style.map(lambda v: style_matrix_cells(v, max_val_folder))
+
+            st.dataframe(
+                styled_matrix_folder,
+                width='stretch',
+                on_select="rerun",
+                selection_mode="single-row",
+                key="matrix_selector_folder"
+            )
+
+            selection_folder = st.session_state.get("matrix_selector_folder")
+            if selection_folder and selection_folder.get("selection", {}).get("rows"):
+                selected_idx = selection_folder["selection"]["rows"][0]
+                f_folder = matrix_folder.index[selected_idx]
+                
+                st.markdown(f"### 🎯 Uitgaande links vanuit Folder: `{f_folder}`")
+                filtered_folder = data[data['From Folder'] == f_folder]
+                display_filtered_folder = filtered_folder[['Focus URL', 'To Folder', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+                display_filtered_folder.loc[display_filtered_folder.duplicated('Focus URL'), 'Focus URL'] = ""
+                
+                st.dataframe(
+                    display_filtered_folder.style.map(color_score, subset=['Score']),
+                    width='stretch',
+                    hide_index=True,
+                    column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                )
 
         # ========================================================
         # 7. TOPIC HUBS OVERZICHT (Indeling op Sterkte)
@@ -240,17 +271,14 @@ with tab_tool:
         st.divider()
         st.subheader("🏗️ Topic Hubs Overzicht")
 
-        # Bereken de gemiddelde scores per hub
         hub_stats = data.groupby('From Hub')['Score'].mean().sort_values(ascending=False)
 
-        # Maak de drie tabbladen aan
         tab_strong, tab_avg, tab_weak = st.tabs([
             "🟢 Sterk (>= 85%)", 
             "🟡 Gemiddeld (70-84%)", 
             "🔴 Zwak (< 70%)"
         ])
 
-        # Hulpfunctie om de hubs binnen een tabblad te tonen
         def render_hub_group(hubs_series):
             if hubs_series.empty:
                 st.info("Geen hubs gevonden voor deze categorie.")
@@ -258,7 +286,6 @@ with tab_tool:
                 for hub, avg_score in hubs_series.items():
                     hub_df = data[data['From Hub'] == hub]
                     with st.expander(f"📁 HUB: {hub} ({round(avg_score)}%)"):
-                        # Sorteer op Focus URL en score, verberg duplicaten
                         display_hub = hub_df[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
                         display_hub.loc[display_hub.duplicated('Focus URL'), 'Focus URL'] = ""
                         
@@ -269,7 +296,6 @@ with tab_tool:
                             column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
                         )
 
-        # Deel de hubs in op basis van de kleurenschaal/gemiddelde score
         with tab_strong:
             strong_hubs = hub_stats[hub_stats >= 85]
             render_hub_group(strong_hubs)
@@ -303,56 +329,3 @@ with tab_tool:
             mime="text/csv",
             width="stretch"
         )
-
-# ========================================================
-# 9. FOLDER MATRIX TAB LOGICA
-# ========================================================
-with tab_folder:
-    if st.session_state.df_results is not None:
-        data_f = st.session_state.df_results
-        
-        # Folder Matrix bouwen
-        matrix_folder = pd.crosstab(data_f['From Folder'], data_f['To Folder'])
-        
-        # Sorteren op Totaal (Descending)
-        f_row_order = matrix_folder.sum(axis=1).sort_values(ascending=False).index
-        f_col_order = matrix_folder.sum(axis=0).sort_values(ascending=False).index
-        matrix_folder = matrix_folder.reindex(index=f_row_order, columns=f_col_order, fill_value=0)
-
-        st.subheader("📂 URL Path / Folder Matrix")
-        st.info("💡 Klik op een rij om de details te zien. De matrix is gesorteerd op volume.")
-
-        f_max_val = matrix_folder.values.max() if matrix_folder.values.max() > 0 else 1
-        def style_folder_cells(val):
-            if val == 0:
-                return 'background-color: #0a0a0a; color: #222222; text-align: center;'
-            else:
-                intensity = 0.2 + 0.8 * (val / f_max_val)
-                return f'background-color: rgba(0, 255, 162, {intensity}); color: #ffffff; font-weight: bold; text-align: center;'
-
-        st.dataframe(
-            matrix_folder.style.map(style_folder_cells),
-            width='stretch',
-            on_select="rerun",
-            selection_mode="single-row",
-            key="folder_matrix_selector"
-        )
-
-        f_selection = st.session_state.get("folder_matrix_selector")
-        if f_selection and f_selection.get("selection", {}).get("rows"):
-            f_selected_idx = f_selection["selection"]["rows"][0]
-            f_path = matrix_folder.index[f_selected_idx]
-            
-            st.markdown(f"### 🎯 Uitgaande links vanuit folder: `{f_path}`")
-            f_filtered = data_f[data_f['From Folder'] == f_path]
-            f_display = f_filtered[['Focus URL', 'To Folder', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
-            f_display.loc[f_display.duplicated('Focus URL'), 'Focus URL'] = ""
-            
-            st.dataframe(
-                f_display.style.map(color_score, subset=['Score']),
-                width='stretch',
-                hide_index=True,
-                column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
-            )
-    else:
-        st.info("Genereer eerst een analyse in de 'Analyse Tool' om de Folder Matrix te bekijken.")
