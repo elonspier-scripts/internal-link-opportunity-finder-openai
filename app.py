@@ -5,6 +5,7 @@ from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 import re
 import io
+from urllib.parse import urlparse
 
 # ========================================================
 # 1. UI CONFIGURATIE (Deep Black / Cyber Blue)
@@ -50,6 +51,17 @@ def clean_path(url):
     path = url.split('/')[-1] if not url.strip().endswith('/') else url.split('/')[-2]
     return re.sub(r'[-_/]', ' ', path)
 
+def get_folder(url):
+    """Extraheert de eerste hoofdmap uit de URL"""
+    try:
+        path = urlparse(str(url)).path
+        clean_p = path.strip('/')
+        if not clean_p:
+            return '/'
+        return f"/{clean_p.split('/')[0]}/"
+    except:
+        return "/"
+
 def get_embeddings(texts, key):
     client = OpenAI(api_key=key)
     res = client.embeddings.create(input=texts, model='text-embedding-3-small')
@@ -73,7 +85,7 @@ def color_score(v):
 # ========================================================
 st.title("🔗 SEO Link Intelligence Matrix")
 
-tab_tool, tab_inst = st.tabs(["🚀 Analyse Tool", "📖 Instructies"])
+tab_tool, tab_folder, tab_inst = st.tabs(["🚀 Analyse Tool", "📂 Folder Matrix", "📖 Instructies"])
 
 with tab_inst:
     st.header("Hoe gebruik je deze tool?")
@@ -128,7 +140,10 @@ with tab_tool:
                     
                     clean_df['text'] = clean_df[url_col].astype(str).apply(clean_path) + " " + clean_df.iloc[:, 1].astype(str)
                     clean_df['Category'] = clean_df['text'].apply(get_cat)
+                    clean_df['Folder'] = clean_df[url_col].apply(get_folder)
+                    
                     cat_lookup = dict(zip(clean_df[url_col], clean_df['Category']))
+                    folder_lookup = dict(zip(clean_df[url_col], clean_df['Folder']))
 
                     vecs = get_embeddings(clean_df['text'].tolist(), api_key)
                     sims = cosine_similarity(vecs)
@@ -138,6 +153,7 @@ with tab_tool:
                         if f_url not in clean_df[url_col].values: continue
                         idx_src = clean_df.index[clean_df[url_col] == f_url].tolist()[0]
                         src_cat = clean_df.iloc[idx_src]['Category']
+                        src_folder = clean_df.iloc[idx_src]['Folder']
                         
                         scores = sims[idx_src]
                         top_idx = np.argsort(scores)[::-1]
@@ -149,8 +165,10 @@ with tab_tool:
                             if f_url != t_url and s >= score_threshold:
                                 found.append({
                                     'From Hub': src_cat,
+                                    'From Folder': src_folder,
                                     'Focus URL': f_url,
                                     'To Hub': cat_lookup.get(t_url, "ALGEMEEN"),
+                                    'To Folder': folder_lookup.get(t_url, "/"),
                                     'Target URL': t_url,
                                     'Score': s * 100
                                 })
@@ -285,3 +303,56 @@ with tab_tool:
             mime="text/csv",
             width="stretch"
         )
+
+# ========================================================
+# 9. FOLDER MATRIX TAB LOGICA
+# ========================================================
+with tab_folder:
+    if st.session_state.df_results is not None:
+        data_f = st.session_state.df_results
+        
+        # Folder Matrix bouwen
+        matrix_folder = pd.crosstab(data_f['From Folder'], data_f['To Folder'])
+        
+        # Sorteren op Totaal (Descending)
+        f_row_order = matrix_folder.sum(axis=1).sort_values(ascending=False).index
+        f_col_order = matrix_folder.sum(axis=0).sort_values(ascending=False).index
+        matrix_folder = matrix_folder.reindex(index=f_row_order, columns=f_col_order, fill_value=0)
+
+        st.subheader("📂 URL Path / Folder Matrix")
+        st.info("💡 Klik op een rij om de details te zien. De matrix is gesorteerd op volume.")
+
+        f_max_val = matrix_folder.values.max() if matrix_folder.values.max() > 0 else 1
+        def style_folder_cells(val):
+            if val == 0:
+                return 'background-color: #0a0a0a; color: #222222; text-align: center;'
+            else:
+                intensity = 0.2 + 0.8 * (val / f_max_val)
+                return f'background-color: rgba(0, 255, 162, {intensity}); color: #ffffff; font-weight: bold; text-align: center;'
+
+        st.dataframe(
+            matrix_folder.style.map(style_folder_cells),
+            width='stretch',
+            on_select="rerun",
+            selection_mode="single-row",
+            key="folder_matrix_selector"
+        )
+
+        f_selection = st.session_state.get("folder_matrix_selector")
+        if f_selection and f_selection.get("selection", {}).get("rows"):
+            f_selected_idx = f_selection["selection"]["rows"][0]
+            f_path = matrix_folder.index[f_selected_idx]
+            
+            st.markdown(f"### 🎯 Uitgaande links vanuit folder: `{f_path}`")
+            f_filtered = data_f[data_f['From Folder'] == f_path]
+            f_display = f_filtered[['Focus URL', 'To Folder', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+            f_display.loc[f_display.duplicated('Focus URL'), 'Focus URL'] = ""
+            
+            st.dataframe(
+                f_display.style.map(color_score, subset=['Score']),
+                width='stretch',
+                hide_index=True,
+                column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+            )
+    else:
+        st.info("Genereer eerst een analyse in de 'Analyse Tool' om de Folder Matrix te bekijken.")
