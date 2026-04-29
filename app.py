@@ -105,7 +105,7 @@ with tab_tool:
     # ========================================================
     # 5. DE ANALYSE ENGINE
     # ========================================================
-    if st.button("🚀 GENEREER INTELLIGENCE MATRIX"):
+    if st.button("🚀 GENEREER INTELLIGENCE MATRIX", width="stretch"):
         missing = []
         if not api_key: missing.append("OpenAI API Key (in de sidebar)")
         if not file: missing.append("CSV-bestand")
@@ -121,13 +121,8 @@ with tab_tool:
                     focus_list = [u.strip() for u in urls_txt.split('\n') if u.strip()]
                     
                     # --- FIX VOOR LEGE CELLEN (NaN) ---
-                    # 1. Verwijder rijen waar de URL compleet leeg is
                     clean_df = raw_df.dropna(subset=[url_col]).copy()
-                    
-                    # 2. Vul alle overige lege cellen met een lege string (voorkomt 'NaN')
                     clean_df = clean_df.fillna("")
-                    
-                    # 3. Filter voor de zekerheid URLs weg die alleen uit spaties bestaan
                     clean_df = clean_df[clean_df[url_col].astype(str).str.strip() != ""]
                     # ----------------------------------
                     
@@ -277,9 +272,7 @@ with tab_tool:
         export_df = export_df.sort_values(by=['From Hub', 'Focus URL', 'Score'], ascending=[True, True, False])
         export_df['Score'] = export_df['Score'].apply(lambda x: f"{round(x)}%")
         
-        # Maak Focus URL leeg voor herhalende waarden
         export_df.loc[export_df.duplicated(subset=['From Hub', 'Focus URL']), 'Focus URL'] = ""
-        # Maak From Hub leeg voor herhalende waarden (toont de hub slechts 1x per groep)
         export_df.loc[export_df.duplicated(subset=['From Hub']), 'From Hub'] = ""
         
         csv_buffer = io.StringIO()
@@ -289,5 +282,6 @@ with tab_tool:
             label="📥 Download Resultaten (CSV)",
             data=csv_buffer.getvalue(),
             file_name="seo_internal_links_matrix.csv",
-            mime="text/csv"
+            mime="text/csv",
+            width="stretch"
         )
