@@ -120,8 +120,18 @@ with tab_tool:
                     url_col = raw_df.columns[0]
                     focus_list = [u.strip() for u in urls_txt.split('\n') if u.strip()]
                     
-                    clean_df = raw_df[raw_df[url_col].str.strip() != ""].copy()
-                    clean_df['text'] = clean_df[url_col].apply(clean_path) + " " + clean_df.iloc[:, 1].astype(str)
+                    # --- FIX VOOR LEGE CELLEN (NaN) ---
+                    # 1. Verwijder rijen waar de URL compleet leeg is
+                    clean_df = raw_df.dropna(subset=[url_col]).copy()
+                    
+                    # 2. Vul alle overige lege cellen met een lege string (voorkomt 'NaN')
+                    clean_df = clean_df.fillna("")
+                    
+                    # 3. Filter voor de zekerheid URLs weg die alleen uit spaties bestaan
+                    clean_df = clean_df[clean_df[url_col].astype(str).str.strip() != ""]
+                    # ----------------------------------
+                    
+                    clean_df['text'] = clean_df[url_col].astype(str).apply(clean_path) + " " + clean_df.iloc[:, 1].astype(str)
                     clean_df['Category'] = clean_df['text'].apply(get_cat)
                     cat_lookup = dict(zip(clean_df[url_col], clean_df['Category']))
 
@@ -157,7 +167,7 @@ with tab_tool:
 
             except Exception as e:
                 st.error(f"Systeemfout: {e}")
-
+                
     # ========================================================
     # 6. INTERACTIEVE MATRIX & OUTPUT
     # ========================================================
