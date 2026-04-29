@@ -198,7 +198,7 @@ with tab_tool:
 
         st.dataframe(
             styled_matrix,
-            use_container_width=True,
+            width='stretch',
             on_select="rerun",
             selection_mode="single-row",
             key="matrix_selector"
@@ -216,7 +216,7 @@ with tab_tool:
             
             st.dataframe(
                 display_filtered.style.map(color_score, subset=['Score']),
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
                 column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
             )
@@ -251,7 +251,7 @@ with tab_tool:
                         
                         st.dataframe(
                             display_hub.style.map(color_score, subset=['Score']),
-                            use_container_width=True,
+                            width='stretch',
                             hide_index=True,
                             column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
                         )
