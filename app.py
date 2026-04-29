@@ -5,9 +5,9 @@ from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 import re
 import io
-from urllib.parse import urlparse # Nieuwe import voor folders
+from urllib.parse import urlparse
 
-# 🚀 BROWSER CRASH FIX: Verhoog de limiet voor grote matrices
+# 🚀 BROWSER CRASH FIX: Verhoog de limiet voor het aantal cellen in de matrix
 pd.set_option("styler.render.max_elements", 1000000)
 
 # ========================================================
@@ -55,13 +55,15 @@ def clean_path(url):
     return re.sub(r'[-_/]', ' ', path)
 
 def get_folder(url):
-    """Extraheert de eerste hoofdmap uit de URL"""
+    """Extraheert de eerste hoofdmap (top-level folder) uit een URL"""
     try:
         path = urlparse(str(url)).path
         clean_p = path.strip('/')
         if not clean_p:
             return '/'
-        return f"/{clean_p.split('/')[0]}/"
+        # Pak de eerste map voor de hoofdstructuur
+        first_folder = clean_p.split('/')[0]
+        return f"/{first_folder}/"
     except:
         return "/"
 
@@ -71,6 +73,7 @@ def get_embeddings(texts, key):
     return np.array([d.embedding for d in res.data])
 
 def get_cat(text):
+    """Word-filter methode om categorie te bepalen"""
     words = re.findall(r'\w{4,}', str(text).lower())
     stop = {'deze', 'voor', 'naar', 'met', 'door', 'geen', 'over', 'mijn'}
     filtered = [w for w in words if w not in stop]
@@ -92,7 +95,7 @@ tab_tool, tab_inst = st.tabs(["🚀 Analyse Tool", "📖 Instructies"])
 
 with tab_inst:
     st.header("Hoe gebruik je deze tool?")
-    st.markdown("Upload CSV, voer API Key in en plak Focus URL's.")
+    st.markdown("Lever een CSV aan met URL's in de eerste kolom. De tool vindt interne linkkansen op basis van semantische gelijkenis.")
 
 with tab_tool:
     c1, c2 = st.columns([1, 1])
@@ -106,7 +109,7 @@ with tab_tool:
     # ========================================================
     if st.button("🚀 GENEREER INTELLIGENCE MATRIX"):
         missing = []
-        if not api_key: missing.append("OpenAI API Key (in de sidebar)")
+        if not api_key: missing.append("OpenAI API Key")
         if not file: missing.append("CSV-bestand")
         if not urls_txt: missing.append("Focus URL's")
 
@@ -146,10 +149,10 @@ with tab_tool:
                             if f_url != t_url and s >= score_threshold:
                                 found.append({
                                     'From Hub': src_cat,
-                                    'From Folder': get_folder(f_url), # Folder info
+                                    'From Folder': get_folder(f_url),
                                     'Focus URL': f_url,
                                     'To Hub': cat_lookup.get(t_url, "ALGEMEEN"),
-                                    'To Folder': get_folder(t_url),   # Folder info
+                                    'To Folder': get_folder(t_url),
                                     'Target URL': t_url,
                                     'Score': s * 100
                                 })
@@ -161,7 +164,7 @@ with tab_tool:
 
             except Exception as e:
                 st.error(f"Systeemfout: {e}")
-                
+
     # ========================================================
     # 6. INTERACTIEVE MATRIX & OUTPUT
     # ========================================================
@@ -170,15 +173,12 @@ with tab_tool:
         st.divider()
         st.subheader("📊 Cross-Linking Matrices (Intensity)")
         
-        # Matrix Tabs
-        tab_matrix_hub, tab_matrix_folder = st.tabs(["🗂️ Semantische Hub Matrix", "📁 Technische Folder Matrix"])
+        tab_matrix_hub, tab_matrix_folder = st.tabs(["🗂️ Woord-Cluster Matrix", "📁 Technische Folder Matrix"])
 
         def style_matrix_cells(val, mx_val):
-            if val == 0:
-                return 'background-color: #0a0a0a; color: #222222; text-align: center;'
-            else:
-                intensity = 0.2 + 0.8 * (val / mx_val)
-                return f'background-color: rgba(0, 162, 255, {intensity}); color: #ffffff; font-weight: bold; text-align: center;'
+            if val == 0: return 'background-color: #0a0a0a; color: #222222; text-align: center;'
+            intensity = 0.2 + 0.8 * (val / mx_val)
+            return f'background-color: rgba(0, 162, 255, {intensity}); color: #ffffff; font-weight: bold; text-align: center;'
 
         # --- TAB 1: HUB MATRIX ---
         with tab_matrix_hub:
@@ -189,15 +189,19 @@ with tab_tool:
 
             st.dataframe(
                 matrix_hub.style.map(lambda v: style_matrix_cells(v, matrix_hub.values.max() if matrix_hub.values.max() > 0 else 1)),
-                width='content', on_select="rerun", selection_mode="single-row", key="mx_hub"
+                width='content', on_select="rerun", selection_mode="single-row", key="matrix_selector_hub"
             )
 
-            sel_hub = st.session_state.get("mx_hub")
+            sel_hub = st.session_state.get("matrix_selector_hub")
             if sel_hub and sel_hub.get("selection", {}).get("rows"):
-                f_cat = matrix_hub.index[sel_hub["selection"]["rows"][0]]
+                selected_idx = sel_hub["selection"]["rows"][0]
+                f_cat = matrix_hub.index[selected_idx]
                 st.markdown(f"### 🎯 Links vanuit Hub: `{f_cat}`")
                 df_filtered = data[data['From Hub'] == f_cat]
-                st.dataframe(df_filtered[['Focus URL', 'To Hub', 'Target URL', 'Score']].style.map(color_score, subset=['Score']), width='content', hide_index=True)
+                st.dataframe(
+                    df_filtered[['Focus URL', 'To Hub', 'Target URL', 'Score']].style.map(color_score, subset=['Score']), 
+                    width='content', hide_index=True, column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                )
 
         # --- TAB 2: FOLDER MATRIX ---
         with tab_matrix_folder:
@@ -208,43 +212,38 @@ with tab_tool:
 
             st.dataframe(
                 matrix_folder.style.map(lambda v: style_matrix_cells(v, matrix_folder.values.max() if matrix_folder.values.max() > 0 else 1)),
-                width='content', on_select="rerun", selection_mode="single-row", key="mx_folder"
+                width='content', on_select="rerun", selection_mode="single-row", key="matrix_selector_folder"
             )
 
-            sel_folder = st.session_state.get("mx_folder")
+            sel_folder = st.session_state.get("matrix_selector_folder")
             if sel_folder and sel_folder.get("selection", {}).get("rows"):
-                f_folder = matrix_folder.index[sel_folder["selection"]["rows"][0]]
+                selected_idx = sel_folder["selection"]["rows"][0]
+                f_folder = matrix_folder.index[selected_idx]
                 st.markdown(f"### 🎯 Links vanuit Folder: `{f_folder}`")
                 df_filtered_folder = data[data['From Folder'] == f_folder]
-                st.dataframe(df_filtered_folder[['Focus URL', 'To Folder', 'Target URL', 'Score']].style.map(color_score, subset=['Score']), width='content', hide_index=True)
+                st.dataframe(
+                    df_filtered_folder[['Focus URL', 'To Folder', 'Target URL', 'Score']].style.map(color_score, subset=['Score']), 
+                    width='content', hide_index=True, column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                )
 
         # ========================================================
-        # 7. TOPIC HUBS OVERZICHT (Indeling op Sterkte)
+        # 7. OVERZICHT & EXPORT
         # ========================================================
         st.divider()
         st.subheader("🏗️ Topic Hubs Overzicht")
-
         hub_stats = data.groupby('From Hub')['Score'].mean().sort_values(ascending=False)
         tab_strong, tab_avg, tab_weak = st.tabs(["🟢 Sterk (>= 85%)", "🟡 Gemiddeld (70-84%)", "🔴 Zwak (< 70%)"])
 
         def render_hub_group(hubs_series):
-            if hubs_series.empty:
-                st.info("Geen hubs gevonden.")
-            else:
-                for hub, avg_score in hubs_series.items():
-                    hub_df = data[data['From Hub'] == hub]
-                    with st.expander(f"📁 HUB: {hub} ({round(avg_score)}%)"):
-                        display_hub = hub_df[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
-                        display_hub.loc[display_hub.duplicated('Focus URL'), 'Focus URL'] = ""
-                        st.dataframe(display_hub.style.map(color_score, subset=['Score']), use_container_width=True, hide_index=True)
+            for hub, avg_score in hubs_series.items():
+                hub_df = data[data['From Hub'] == hub]
+                with st.expander(f"📁 HUB: {hub} ({round(avg_score)}%)"):
+                    st.dataframe(hub_df[['Focus URL', 'Target URL', 'Score']].style.map(color_score, subset=['Score']), width='content', hide_index=True)
 
         with tab_strong: render_hub_group(hub_stats[hub_stats >= 85])
         with tab_avg: render_hub_group(hub_stats[(hub_stats >= 70) & (hub_stats < 85)])
         with tab_weak: render_hub_group(hub_stats[hub_stats < 70])
         
-        # ========================================================
-        # 8. EXPORT CSV
-        # ========================================================
         st.divider()
         csv_buffer = io.StringIO()
         data.to_csv(csv_buffer, index=False, sep=';')
