@@ -5,10 +5,6 @@ from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 import re
 import io
-from urllib.parse import urlparse
-
-# 👉 Toegevoegd: voorkomt crash bij grote tabellen
-pd.set_option("styler.render.max_elements", 1000000)
 
 # ========================================================
 # 1. UI CONFIGURATIE (Deep Black / Cyber Blue)
@@ -53,18 +49,6 @@ with st.sidebar:
 def clean_path(url):
     path = url.split('/')[-1] if not url.strip().endswith('/') else url.split('/')[-2]
     return re.sub(r'[-_/]', ' ', path)
-
-# 👉 Toegevoegd
-def get_folder(url):
-    """Extraheert de eerste hoofdmap uit de URL"""
-    try:
-        path = urlparse(str(url)).path
-        clean_p = path.strip('/')
-        if not clean_p:
-            return '/'
-        return f"/{clean_p.split('/')[0]}/"
-    except:
-        return "/"
 
 def get_embeddings(texts, key):
     client = OpenAI(api_key=key)
@@ -136,9 +120,16 @@ with tab_tool:
                     url_col = raw_df.columns[0]
                     focus_list = [u.strip() for u in urls_txt.split('\n') if u.strip()]
                     
+                    # --- FIX VOOR LEGE CELLEN (NaN) ---
+                    # 1. Verwijder rijen waar de URL compleet leeg is
                     clean_df = raw_df.dropna(subset=[url_col]).copy()
+                    
+                    # 2. Vul alle overige lege cellen met een lege string (voorkomt 'NaN')
                     clean_df = clean_df.fillna("")
+                    
+                    # 3. Filter voor de zekerheid URLs weg die alleen uit spaties bestaan
                     clean_df = clean_df[clean_df[url_col].astype(str).str.strip() != ""]
+                    # ----------------------------------
                     
                     clean_df['text'] = clean_df[url_col].astype(str).apply(clean_path) + " " + clean_df.iloc[:, 1].astype(str)
                     clean_df['Category'] = clean_df['text'].apply(get_cat)
@@ -163,10 +154,8 @@ with tab_tool:
                             if f_url != t_url and s >= score_threshold:
                                 found.append({
                                     'From Hub': src_cat,
-                                    'From Folder': get_folder(f_url),
                                     'Focus URL': f_url,
                                     'To Hub': cat_lookup.get(t_url, "ALGEMEEN"),
-                                    'To Folder': get_folder(t_url),
                                     'Target URL': t_url,
                                     'Score': s * 100
                                 })
@@ -178,46 +167,127 @@ with tab_tool:
 
             except Exception as e:
                 st.error(f"Systeemfout: {e}")
-
+                
     # ========================================================
-    # 6. MATRIX MET TABS (AANGEPAST)
+    # 6. INTERACTIEVE MATRIX & OUTPUT
     # ========================================================
     if st.session_state.df_results is not None:
         data = st.session_state.df_results
-        st.divider()
         
-        tab_matrix_hub, tab_matrix_folder = st.tabs(["🗂️ Woord-Cluster Matrix", "📁 Technische Folder Matrix"])
+        # Matrix bouwen
+        matrix = pd.crosstab(data['From Hub'], data['To Hub'])
+        
+        # Sorteren op Totaal (Descending)
+        row_order = matrix.sum(axis=1).sort_values(ascending=False).index
+        col_order = matrix.sum(axis=0).sort_values(ascending=False).index
+        matrix = matrix.reindex(index=row_order, columns=col_order, fill_value=0)
 
-        def style_matrix_cells(val, mx_val):
+        st.divider()
+        st.subheader("📊 Cross-Linking Matrix (Intensity)")
+        st.info("💡 Klik op een rij om de details te zien. De matrix is gesorteerd op volume.")
+
+        max_val = matrix.values.max() if matrix.values.max() > 0 else 1
+        def style_matrix_cells(val):
             if val == 0:
                 return 'background-color: #0a0a0a; color: #222222; text-align: center;'
-            intensity = 0.2 + 0.8 * (val / mx_val)
-            return f'background-color: rgba(0, 162, 255, {intensity}); color: #ffffff; font-weight: bold; text-align: center;'
+            else:
+                intensity = 0.2 + 0.8 * (val / max_val)
+                return f'background-color: rgba(0, 162, 255, {intensity}); color: #ffffff; font-weight: bold; text-align: center;'
 
-        with tab_matrix_hub:
-            matrix_hub = pd.crosstab(data['From Hub'], data['To Hub'])
-            row_order = matrix_hub.sum(axis=1).sort_values(ascending=False).index
-            col_order = matrix_hub.sum(axis=0).sort_values(ascending=False).index
-            matrix_hub = matrix_hub.reindex(index=row_order, columns=col_order, fill_value=0)
+        styled_matrix = matrix.style.map(style_matrix_cells)
 
+        st.dataframe(
+            styled_matrix,
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="matrix_selector"
+        )
+
+        selection = st.session_state.get("matrix_selector")
+        if selection and selection.get("selection", {}).get("rows"):
+            selected_idx = selection["selection"]["rows"][0]
+            f_cat = matrix.index[selected_idx]
+            
+            st.markdown(f"### 🎯 Uitgaande links vanuit: `{f_cat}`")
+            filtered = data[data['From Hub'] == f_cat]
+            display_filtered = filtered[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+            display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
+            
             st.dataframe(
-                matrix_hub.style.map(lambda v: style_matrix_cells(v, matrix_hub.values.max() if matrix_hub.values.max() > 0 else 1)),
+                display_filtered.style.map(color_score, subset=['Score']),
                 use_container_width=True,
-                on_select="rerun",
-                selection_mode="single-row",
-                key="matrix_selector"
+                hide_index=True,
+                column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
             )
 
-        with tab_matrix_folder:
-            matrix_folder = pd.crosstab(data['From Folder'], data['To Folder'])
-            row_order = matrix_folder.sum(axis=1).sort_values(ascending=False).index
-            col_order = matrix_folder.sum(axis=0).sort_values(ascending=False).index
-            matrix_folder = matrix_folder.reindex(index=row_order, columns=col_order, fill_value=0)
+        # ========================================================
+        # 7. TOPIC HUBS OVERZICHT (Indeling op Sterkte)
+        # ========================================================
+        st.divider()
+        st.subheader("🏗️ Topic Hubs Overzicht")
 
-            st.dataframe(
-                matrix_folder.style.map(lambda v: style_matrix_cells(v, matrix_folder.values.max() if matrix_folder.values.max() > 0 else 1)),
-                width='content',
-                on_select="rerun",
-                selection_mode="single-row",
-                key="mx_folder_tab"
-            )
+        # Bereken de gemiddelde scores per hub
+        hub_stats = data.groupby('From Hub')['Score'].mean().sort_values(ascending=False)
+
+        # Maak de drie tabbladen aan
+        tab_strong, tab_avg, tab_weak = st.tabs([
+            "🟢 Sterk (>= 85%)", 
+            "🟡 Gemiddeld (70-84%)", 
+            "🔴 Zwak (< 70%)"
+        ])
+
+        # Hulpfunctie om de hubs binnen een tabblad te tonen
+        def render_hub_group(hubs_series):
+            if hubs_series.empty:
+                st.info("Geen hubs gevonden voor deze categorie.")
+            else:
+                for hub, avg_score in hubs_series.items():
+                    hub_df = data[data['From Hub'] == hub]
+                    with st.expander(f"📁 HUB: {hub} ({round(avg_score)}%)"):
+                        # Sorteer op Focus URL en score, verberg duplicaten
+                        display_hub = hub_df[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+                        display_hub.loc[display_hub.duplicated('Focus URL'), 'Focus URL'] = ""
+                        
+                        st.dataframe(
+                            display_hub.style.map(color_score, subset=['Score']),
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                        )
+
+        # Deel de hubs in op basis van de kleurenschaal/gemiddelde score
+        with tab_strong:
+            strong_hubs = hub_stats[hub_stats >= 85]
+            render_hub_group(strong_hubs)
+
+        with tab_avg:
+            avg_hubs = hub_stats[(hub_stats >= 70) & (hub_stats < 85)]
+            render_hub_group(avg_hubs)
+
+        with tab_weak:
+            weak_hubs = hub_stats[hub_stats < 70]
+            render_hub_group(weak_hubs)
+        
+        # ========================================================
+        # 8. EXPORT CSV
+        # ========================================================
+        st.divider()
+        export_df = data.copy()
+        export_df = export_df.sort_values(by=['From Hub', 'Focus URL', 'Score'], ascending=[True, True, False])
+        export_df['Score'] = export_df['Score'].apply(lambda x: f"{round(x)}%")
+        
+        # Maak Focus URL leeg voor herhalende waarden
+        export_df.loc[export_df.duplicated(subset=['From Hub', 'Focus URL']), 'Focus URL'] = ""
+        # Maak From Hub leeg voor herhalende waarden (toont de hub slechts 1x per groep)
+        export_df.loc[export_df.duplicated(subset=['From Hub']), 'From Hub'] = ""
+        
+        csv_buffer = io.StringIO()
+        export_df.to_csv(csv_buffer, index=False, sep=';')
+        
+        st.download_button(
+            label="📥 Download Resultaten (CSV)",
+            data=csv_buffer.getvalue(),
+            file_name="seo_internal_links_matrix.csv",
+            mime="text/csv"
+        )
