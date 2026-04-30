@@ -37,9 +37,6 @@ st.markdown("""
 if 'df_results' not in st.session_state:
     st.session_state.df_results = None
 
-if 'df_cannibal' not in st.session_state:
-    st.session_state.df_cannibal = None
-
 with st.sidebar:
     st.title("⚙️ Configuration")
     api_key = st.text_input("OpenAI API Key", type="password", key="api_key_val")
@@ -89,7 +86,7 @@ def color_score(v):
 # ========================================================
 # 4. DASHBOARD TABS
 # ========================================================
-st.title("🔗 SEO Link Opportunity Finder")
+st.title("🔗 SEO Link Opportinity Finder")
 
 tab_tool, tab_inst = st.tabs(["🚀 internal link Tool", "📖 Instructions"])
 
@@ -164,19 +161,6 @@ with tab_tool:
                     vecs = get_embeddings(clean_df['text'].tolist(), api_key)
                     sims = cosine_similarity(vecs)
 
-                    # --- CANNIBALIZATION DETECTION ---
-                    upper_tri = np.triu(sims, k=1)
-                    idx_i, idx_j = np.where(upper_tri >= 0.95)
-                    cannibal_data = []
-                    for i, j in zip(idx_i, idx_j):
-                        cannibal_data.append({
-                            'URL A': clean_df.iloc[i][url_col],
-                            'URL B': clean_df.iloc[j][url_col],
-                            'Match Score': sims[i, j] * 100
-                        })
-                    st.session_state.df_cannibal = pd.DataFrame(cannibal_data)
-                    # ----------------------------------
-
                     found = []
                     for f_url in focus_list:
                         if f_url not in clean_df[url_col].values: continue
@@ -192,7 +176,7 @@ with tab_tool:
                             s = float(scores[t_idx])
                             if f_url != t_url and s >= score_threshold:
                                 
-                                # 1. OUTBOUND
+                                # 1. OUTBOUND: Focus URL links out to the Target URL
                                 found.append({
                                     'Direction': 'Outbound',
                                     'From Hub': src_cat,
@@ -206,7 +190,7 @@ with tab_tool:
                                     'Score': s * 100
                                 })
                                 
-                                # 2. INBOUND
+                                # 2. INBOUND: The Target URL links towards the Focus URL
                                 found.append({
                                     'Direction': 'Inbound',
                                     'From Hub': cat_lookup.get(t_url, "General"),
@@ -239,11 +223,7 @@ with tab_tool:
         st.subheader("📊 Cross-Linking Matrix")
         st.info("💡 Click on a row for more details. The matrix is in descending order with the most link opportunities first.")
 
-        tab_matrix_hub, tab_matrix_folder, tab_cannibal = st.tabs([
-            "🗂️ Semantic Hub Matrix", 
-            "📁 Path / Folder Matrix",
-            "⚠️ Potential Cannibalization"
-        ])
+        tab_matrix_hub, tab_matrix_folder = st.tabs(["🗂️ Semantic Hub Matrix", "📁 Path / Folder Matrix"])
 
         def style_matrix_cells(val, mx_val):
             if val == 0:
@@ -266,18 +246,34 @@ with tab_tool:
                 max_val_hub = matrix_hub.values.max() if matrix_hub.values.max() > 0 else 1
                 styled_matrix_hub = matrix_hub.style.map(lambda v: style_matrix_cells(v, max_val_hub))
 
-                st.dataframe(styled_matrix_hub, width='stretch', on_select="rerun", selection_mode="single-row", key="matrix_selector_hub")
+                st.dataframe(
+                    styled_matrix_hub,
+                    width='stretch',
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    key="matrix_selector_hub"
+                )
 
                 selection_hub = st.session_state.get("matrix_selector_hub")
                 if selection_hub and selection_hub.get("selection", {}).get("rows"):
                     selected_idx = selection_hub["selection"]["rows"][0]
                     f_cat = matrix_hub.index[selected_idx]
+                    
                     st.markdown(f"### 🎯 Links to place from Hub: `{f_cat}`")
                     filtered = data_hub[data_hub['From Hub'] == f_cat]
-                    display_filtered = filtered[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].sort_values(by='Score', ascending=False).copy()
-                    st.dataframe(display_filtered.style.map(color_score, subset=['Score']), width='stretch', hide_index=True, column_config={"Score": st.column_config.NumberColumn(format="%d%%")})
+                    display_filtered = filtered[['Focus URL', 'Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+                    display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
+                    
+                    final_display = display_filtered[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']]
+                    
+                    st.dataframe(
+                        final_display.style.map(color_score, subset=['Score']),
+                        width='stretch',
+                        hide_index=True,
+                        column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                    )
             else:
-                st.warning(f"No {dir_hub.lower()} links found.")
+                st.warning(f"No {dir_hub.lower()} links found with the current threshold.")
 
         # --- TAB 2: FOLDER MATRIX ---
         with tab_matrix_folder:
@@ -293,61 +289,99 @@ with tab_tool:
                 max_val_folder = matrix_folder.values.max() if matrix_folder.values.max() > 0 else 1
                 styled_matrix_folder = matrix_folder.style.map(lambda v: style_matrix_cells(v, max_val_folder))
 
-                st.dataframe(styled_matrix_folder, width='stretch', on_select="rerun", selection_mode="single-row", key="matrix_selector_folder")
+                st.dataframe(
+                    styled_matrix_folder,
+                    width='stretch',
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    key="matrix_selector_folder"
+                )
 
                 selection_folder = st.session_state.get("matrix_selector_folder")
                 if selection_folder and selection_folder.get("selection", {}).get("rows"):
                     selected_idx = selection_folder["selection"]["rows"][0]
                     f_folder = matrix_folder.index[selected_idx]
+                    
                     st.markdown(f"### 🎯 Links to place from Folder: `{f_folder}`")
                     filtered_folder = data_folder[data_folder['From Folder'] == f_folder]
-                    display_filtered_folder = filtered_folder[['Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score']].sort_values(by='Score', ascending=False).copy()
-                    st.dataframe(display_filtered_folder.style.map(color_score, subset=['Score']), width='stretch', hide_index=True, column_config={"Score": st.column_config.NumberColumn(format="%d%%")})
-            else:
-                st.warning(f"No {dir_folder.lower()} links found.")
+                    display_filtered_folder = filtered_folder[['Focus URL', 'Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+                    display_filtered_folder.loc[display_filtered_folder.duplicated('Focus URL'), 'Focus URL'] = ""
+                    
+                    final_display_folder = display_filtered_folder[['Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score']]
 
-        # --- TAB 3: CANNIBALIZATION ---
-        with tab_cannibal:
-            st.subheader("⚠️ SEO Cannibalization Risk")
-            st.info("The following pairs of pages have a semantic similarity of 95% or higher. This suggests they target the same intent and might be competing with each other.")
-            if st.session_state.df_cannibal is not None and not st.session_state.df_cannibal.empty:
-                st.dataframe(
-                    st.session_state.df_cannibal.sort_values(by='Match Score', ascending=False).style.map(color_score, subset=['Match Score']),
-                    width='stretch', hide_index=True, column_config={"Match Score": st.column_config.NumberColumn(format="%d%%")}
-                )
+                    st.dataframe(
+                        final_display_folder.style.map(color_score, subset=['Score']),
+                        width='stretch',
+                        hide_index=True,
+                        column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                    )
             else:
-                st.success("✅ No critical cannibalization detected (95%+ match).")
+                st.warning(f"No {dir_folder.lower()} links found with the current threshold.")
 
         # ========================================================
         # 7. TOPIC HUBS OVERVIEW
         # ========================================================
         st.divider()
         st.subheader("🏗️ Topic Hubs Overview (Outbound)")
+        st.info("This overview shows the standard outbound perspective for your focus URLs.")
+
         overview_data = data[data['Direction'] == 'Outbound']
         hub_stats = overview_data.groupby('From Hub')['Score'].mean().sort_values(ascending=False)
 
-        tab_strong, tab_avg, tab_weak = st.tabs(["🟢 Strong (>= 85%)", "🟡 Average (70-84%)", "🔴 Weak (< 70%)"])
+        tab_strong, tab_avg, tab_weak = st.tabs([
+            "🟢 Strong (>= 85%)", 
+            "🟡 Average (70-84%)", 
+            "🔴 Weak (< 70%)"
+        ])
 
         def render_hub_group(hubs_series):
             if hubs_series.empty:
-                st.info("Geen hubs gevonden.")
+                st.info("Geen hubs gevonden voor deze categorie.")
             else:
                 for hub, avg_score in hubs_series.items():
                     hub_df = overview_data[overview_data['From Hub'] == hub]
                     with st.expander(f"📁 HUB: {hub} ({round(avg_score)}%)"):
-                        display_hub = hub_df[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].sort_values(by='Score', ascending=False).copy()
-                        st.dataframe(display_hub.style.map(color_score, subset=['Score']), width='stretch', hide_index=True, column_config={"Score": st.column_config.NumberColumn(format="%d%%")})
+                        display_hub = hub_df[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].sort_values(by=['Page to Edit (Source)', 'Score'], ascending=[True, False]).copy()
+                        display_hub.loc[display_hub.duplicated('Page to Edit (Source)'), 'Page to Edit (Source)'] = ""
+                        
+                        st.dataframe(
+                            display_hub.style.map(color_score, subset=['Score']),
+                            width='stretch',
+                            hide_index=True,
+                            column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                        )
 
-        with tab_strong: render_hub_group(hub_stats[hub_stats >= 85])
-        with tab_avg: render_hub_group(hub_stats[(hub_stats >= 70) & (hub_stats < 85)])
-        with tab_weak: render_hub_group(hub_stats[hub_stats < 70])
+        with tab_strong:
+            strong_hubs = hub_stats[hub_stats >= 85]
+            render_hub_group(strong_hubs)
+
+        with tab_avg:
+            avg_hubs = hub_stats[(hub_stats >= 70) & (hub_stats < 85)]
+            render_hub_group(avg_hubs)
+
+        with tab_weak:
+            weak_hubs = hub_stats[hub_stats < 70]
+            render_hub_group(weak_hubs)
         
         # ========================================================
         # 8. EXPORT CSV
         # ========================================================
         st.divider()
         export_df = data.copy()
+        export_df = export_df.sort_values(by=['Direction', 'From Hub', 'Focus URL', 'Score'], ascending=[True, True, True, False])
         export_df['Score'] = export_df['Score'].apply(lambda x: f"{round(x)}%")
+        
+        export_df.loc[export_df.duplicated(subset=['Direction', 'From Hub', 'Focus URL']), 'Focus URL'] = ""
+        export_df.loc[export_df.duplicated(subset=['Direction', 'From Hub']), 'From Hub'] = ""
+        export_df.loc[export_df.duplicated(subset=['Direction']), 'Direction'] = ""
+        
         csv_buffer = io.StringIO()
         export_df.to_csv(csv_buffer, index=False, sep=';')
-        st.download_button(label="📥 Download Results (CSV)", data=csv_buffer.getvalue(), file_name="seo_bidirectional_links_matrix.csv", mime="text/csv", width="stretch")
+        
+        st.download_button(
+            label="📥 Download Results (CSV)",
+            data=csv_buffer.getvalue(),
+            file_name="seo_bidirectional_links_matrix.csv",
+            mime="text/csv",
+            width="stretch"
+        )
