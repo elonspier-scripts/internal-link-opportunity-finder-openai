@@ -95,24 +95,30 @@ with tab_inst:
     Provide a CSV file (e.g., an export from Screaming Frog or your own list) with the following structure:
     * **Column A (first column):** Must contain the full URLs.
     * **Other columns:** May contain content such as the Page Title, H1, or the main body text.
+
+    ### 2. Technical Limitations & Advice
+    * **Max File Size:** Keep your CSV under **20MB**. Larger files may crash the app memory.
+    * **Optimal Rows:** For the best performance, aim for **1,000 to 5,000 rows**. 
+    * **Limits:** Analyzing more than **10,000 rows** is not advised as it significantly increases processing time and API costs.
+    * **Data Cleaning:** For large sites, only upload "Internal HTML" URLs with a 200 status code.
     
-    ### 2. OpenAI API Key
+    ### 3. OpenAI API Key
     Enter your own OpenAI API Key in the sidebar.
 
-    ### 3. Focus URLs
+    ### 4. Focus URLs
     Paste the URLs you want to analyze into the text field. Use one URL per line.
 
-    ### 4. Using the Matrix
+    ### 5. Using the Matrix
     * After the analysis, a **Cross-Linking Matrix** will appear. 
     * The matrix is sorted by relevance by default.
     * Click on a **row** in the matrix to immediately open all specific linking opportunities.
     * Prioritize internal linking opportunities based on the relevant scores
 
-    ### 5. Using the Topic Hub Overview
+    ### 6. Using the Topic Hub Overview
     * Click on a **Hub** in the Topic Hub Overview to open all specific linking opportunities.
     * Prioritize internal linking opportunities based on the relevance scores.
     
-    ### 6. Export results to CSV
+    ### 7. Export results to CSV
     * Use the **download button** at the bottom to export all Topic Hub results at once.
     * You can also download each individual table separately by hovering over it and clicking the download icon.
     """)
@@ -227,7 +233,7 @@ with tab_tool:
                 selected_idx = selection_hub["selection"]["rows"][0]
                 f_cat = matrix_hub.index[selected_idx]
                 
-                st.markdown(f"### 🎯 Uitgaande links vanuit Hub: `{f_cat}`")
+                st.markdown(f"### 🎯 Outgoing link opportunities from Hub: `{f_cat}`")
                 filtered = data[data['From Hub'] == f_cat]
                 display_filtered = filtered[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
                 display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
