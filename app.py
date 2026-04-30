@@ -78,15 +78,20 @@ def get_cat(text):
     return " / ".join(unique[:2]).upper() if unique else "ALGEMEEN"
 
 def color_score(v):
-    if not isinstance(v, (int, float)): return ''
-    if v >= 85: return 'color: #28a745; font-weight: bold;'
-    elif v >= 70: return 'color: #ffc107; font-weight: bold;'
+    # Strip emoji label for calculation if necessary, but keep CSS simple
+    val = v
+    if isinstance(v, str):
+        try: val = float(v.replace('%', '').replace('⚠️', '').strip())
+        except: return ''
+    
+    if val >= 85: return 'color: #28a745; font-weight: bold;'
+    elif val >= 70: return 'color: #ffc107; font-weight: bold;'
     else: return 'color: #dc3545; font-weight: bold;'
 
 # ========================================================
 # 4. DASHBOARD TABS
 # ========================================================
-st.title("🔗 SEO Link Opportinity Finder")
+st.title("🔗 SEO Link Opportunity Finder")
 
 tab_tool, tab_inst = st.tabs(["🚀 internal link Tool", "📖 Instructions"])
 
@@ -176,7 +181,7 @@ with tab_tool:
                             s = float(scores[t_idx])
                             if f_url != t_url and s >= score_threshold:
                                 
-                                # 1. OUTBOUND: Focus URL links out to the Target URL
+                                # 1. OUTBOUND
                                 found.append({
                                     'Direction': 'Outbound',
                                     'From Hub': src_cat,
@@ -190,7 +195,7 @@ with tab_tool:
                                     'Score': s * 100
                                 })
                                 
-                                # 2. INBOUND: The Target URL links towards the Focus URL
+                                # 2. INBOUND
                                 found.append({
                                     'Direction': 'Inbound',
                                     'From Hub': cat_lookup.get(t_url, "General"),
@@ -217,7 +222,7 @@ with tab_tool:
     # 6. INTERACTIVE MATRIX & OUTPUT
     # ========================================================
     if st.session_state.df_results is not None:
-        data = st.session_state.df_results
+        data = st.session_state.df_results.copy()
         
         st.divider()
         st.subheader("📊 Cross-Linking Matrix")
@@ -246,34 +251,28 @@ with tab_tool:
                 max_val_hub = matrix_hub.values.max() if matrix_hub.values.max() > 0 else 1
                 styled_matrix_hub = matrix_hub.style.map(lambda v: style_matrix_cells(v, max_val_hub))
 
-                st.dataframe(
-                    styled_matrix_hub,
-                    width='stretch',
-                    on_select="rerun",
-                    selection_mode="single-row",
-                    key="matrix_selector_hub"
-                )
+                st.dataframe(styled_matrix_hub, width='stretch', on_select="rerun", selection_mode="single-row", key="matrix_selector_hub")
 
                 selection_hub = st.session_state.get("matrix_selector_hub")
                 if selection_hub and selection_hub.get("selection", {}).get("rows"):
                     selected_idx = selection_hub["selection"]["rows"][0]
                     f_cat = matrix_hub.index[selected_idx]
-                    
                     st.markdown(f"### 🎯 Links to place from Hub: `{f_cat}`")
-                    filtered = data_hub[data_hub['From Hub'] == f_cat]
+                    filtered = data_hub[data_hub['From Hub'] == f_cat].copy()
                     display_filtered = filtered[['Focus URL', 'Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
                     display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
                     
-                    final_display = display_filtered[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']]
+                    # Formatting logic for Warning Label
+                    final_display = display_filtered[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].copy()
+                    final_display['Score'] = final_display['Score'].apply(lambda x: f"{int(x)}% ⚠️" if x >= 95 else f"{int(x)}%")
                     
                     st.dataframe(
                         final_display.style.map(color_score, subset=['Score']),
                         width='stretch',
-                        hide_index=True,
-                        column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                        hide_index=True
                     )
             else:
-                st.warning(f"No {dir_hub.lower()} links found with the current threshold.")
+                st.warning(f"No {dir_hub.lower()} links found.")
 
         # --- TAB 2: FOLDER MATRIX ---
         with tab_matrix_folder:
@@ -289,34 +288,27 @@ with tab_tool:
                 max_val_folder = matrix_folder.values.max() if matrix_folder.values.max() > 0 else 1
                 styled_matrix_folder = matrix_folder.style.map(lambda v: style_matrix_cells(v, max_val_folder))
 
-                st.dataframe(
-                    styled_matrix_folder,
-                    width='stretch',
-                    on_select="rerun",
-                    selection_mode="single-row",
-                    key="matrix_selector_folder"
-                )
+                st.dataframe(styled_matrix_folder, width='stretch', on_select="rerun", selection_mode="single-row", key="matrix_selector_folder")
 
                 selection_folder = st.session_state.get("matrix_selector_folder")
                 if selection_folder and selection_folder.get("selection", {}).get("rows"):
                     selected_idx = selection_folder["selection"]["rows"][0]
                     f_folder = matrix_folder.index[selected_idx]
-                    
                     st.markdown(f"### 🎯 Links to place from Folder: `{f_folder}`")
-                    filtered_folder = data_folder[data_folder['From Folder'] == f_folder]
+                    filtered_folder = data_folder[data_folder['From Folder'] == f_folder].copy()
                     display_filtered_folder = filtered_folder[['Focus URL', 'Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
                     display_filtered_folder.loc[display_filtered_folder.duplicated('Focus URL'), 'Focus URL'] = ""
                     
-                    final_display_folder = display_filtered_folder[['Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score']]
+                    final_display_folder = display_filtered_folder[['Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score']].copy()
+                    final_display_folder['Score'] = final_display_folder['Score'].apply(lambda x: f"{int(x)}% ⚠️" if x >= 95 else f"{int(x)}%")
 
                     st.dataframe(
                         final_display_folder.style.map(color_score, subset=['Score']),
                         width='stretch',
-                        hide_index=True,
-                        column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                        hide_index=True
                     )
             else:
-                st.warning(f"No {dir_folder.lower()} links found with the current threshold.")
+                st.warning(f"No {dir_folder.lower()} links found.")
 
         # ========================================================
         # 7. TOPIC HUBS OVERVIEW
@@ -325,43 +317,33 @@ with tab_tool:
         st.subheader("🏗️ Topic Hubs Overview (Outbound)")
         st.info("This overview shows the standard outbound perspective for your focus URLs.")
 
-        overview_data = data[data['Direction'] == 'Outbound']
+        overview_data = data[data['Direction'] == 'Outbound'].copy()
         hub_stats = overview_data.groupby('From Hub')['Score'].mean().sort_values(ascending=False)
 
-        tab_strong, tab_avg, tab_weak = st.tabs([
-            "🟢 Strong (>= 85%)", 
-            "🟡 Average (70-84%)", 
-            "🔴 Weak (< 70%)"
-        ])
+        tab_strong, tab_avg, tab_weak = st.tabs(["🟢 Strong (>= 85%)", "🟡 Average (70-84%)", "🔴 Weak (< 70%)"])
 
         def render_hub_group(hubs_series):
             if hubs_series.empty:
-                st.info("Geen hubs gevonden voor deze categorie.")
+                st.info("Geen hubs gevonden.")
             else:
                 for hub, avg_score in hubs_series.items():
-                    hub_df = overview_data[overview_data['From Hub'] == hub]
+                    hub_df = overview_data[overview_data['From Hub'] == hub].copy()
                     with st.expander(f"📁 HUB: {hub} ({round(avg_score)}%)"):
                         display_hub = hub_df[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].sort_values(by=['Page to Edit (Source)', 'Score'], ascending=[True, False]).copy()
                         display_hub.loc[display_hub.duplicated('Page to Edit (Source)'), 'Page to Edit (Source)'] = ""
                         
+                        # Apply warning label
+                        display_hub['Score'] = display_hub['Score'].apply(lambda x: f"{int(x)}% ⚠️" if x >= 95 else f"{int(x)}%")
+                        
                         st.dataframe(
                             display_hub.style.map(color_score, subset=['Score']),
                             width='stretch',
-                            hide_index=True,
-                            column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                            hide_index=True
                         )
 
-        with tab_strong:
-            strong_hubs = hub_stats[hub_stats >= 85]
-            render_hub_group(strong_hubs)
-
-        with tab_avg:
-            avg_hubs = hub_stats[(hub_stats >= 70) & (hub_stats < 85)]
-            render_hub_group(avg_hubs)
-
-        with tab_weak:
-            weak_hubs = hub_stats[hub_stats < 70]
-            render_hub_group(weak_hubs)
+        with tab_strong: render_hub_group(hub_stats[hub_stats >= 85])
+        with tab_avg: render_hub_group(hub_stats[(hub_stats >= 70) & (hub_stats < 85)])
+        with tab_weak: render_hub_group(hub_stats[hub_stats < 70])
         
         # ========================================================
         # 8. EXPORT CSV
@@ -369,7 +351,7 @@ with tab_tool:
         st.divider()
         export_df = data.copy()
         export_df = export_df.sort_values(by=['Direction', 'From Hub', 'Focus URL', 'Score'], ascending=[True, True, True, False])
-        export_df['Score'] = export_df['Score'].apply(lambda x: f"{round(x)}%")
+        export_df['Score'] = export_df['Score'].apply(lambda x: f"{round(x)}% ⚠️" if x >= 95 else f"{round(x)}%")
         
         export_df.loc[export_df.duplicated(subset=['Direction', 'From Hub', 'Focus URL']), 'Focus URL'] = ""
         export_df.loc[export_df.duplicated(subset=['Direction', 'From Hub']), 'From Hub'] = ""
