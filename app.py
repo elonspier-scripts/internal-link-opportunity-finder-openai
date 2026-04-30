@@ -84,7 +84,7 @@ def color_score(v):
 # ========================================================
 # 4. DASHBOARD TABS
 # ========================================================
-st.title("🔗 SEO Link Intelligence Matrix")
+st.title("🔗 SEO Link Opportinity Finder")
 
 tab_tool, tab_inst = st.tabs(["🚀 internal link Tool", "📖 Instructions"])
 
