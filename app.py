@@ -226,7 +226,7 @@ with tab_tool:
         
         st.divider()
         st.subheader("📊 Cross-Linking Matrix")
-        st.info("💡 Click on a row for more details. The matrix is in descending order with the most link opportunities first. Internal links with an similarity score of 95% or higher. The pages might compete with each other. ⚠️  ")
+        st.info("💡 Click on a row for more details. The matrix is in descending order with the most link opportunities first. Internal links with an similarity score of 95% (⚠️) or higher. The pages might compete with each other.")
 
         tab_matrix_hub, tab_matrix_folder = st.tabs(["🗂️ Semantic Hub Matrix", "📁 Path / Folder Matrix"])
 
