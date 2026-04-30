@@ -8,9 +8,9 @@ import io
 from urllib.parse import urlparse
 
 # ========================================================
-# 1. UI CONFIGURATIE (Deep Black / Cyber Blue)
+# 1. UI CONFIGURATION (Deep Black / Cyber Blue)
 # ========================================================
-st.set_page_config(page_title="SEO Link Matrix Pro", layout="wide")
+st.set_page_config(page_title="SEO Link Opportunity Finder", layout="wide")
 
 st.markdown("""
     <style>
@@ -32,17 +32,17 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ========================================================
-# 2. INITIALISATIE
+# 2. INITIALISATION
 # ========================================================
 if 'df_results' not in st.session_state:
     st.session_state.df_results = None
 
 with st.sidebar:
-    st.title("⚙️ Configuratie")
+    st.title("⚙️ Configuration")
     api_key = st.text_input("OpenAI API Key", type="password", key="api_key_val")
     st.divider()
-    score_threshold = st.slider("Minimale Match %", 50, 95, 80) / 100
-    links_per_page = st.slider("Aantal links per URL", 1, 10, 5)
+    score_threshold = st.slider("Minimum Match threshold %", 50, 95, 80) / 100
+    links_per_page = st.slider("Links per URL", 1, 10, 5)
 
 # ========================================================
 # 3. HELPERS
@@ -86,26 +86,26 @@ def color_score(v):
 # ========================================================
 st.title("🔗 SEO Link Intelligence Matrix")
 
-tab_tool, tab_inst = st.tabs(["🚀 Analyse Tool", "📖 Instructies"])
+tab_tool, tab_inst = st.tabs(["🚀 internal link Tool", "📖 Instructions"])
 
 with tab_inst:
-    st.header("Hoe gebruik je deze tool?")
+    st.header("How to use this tool")
     st.markdown("""
-    ### 1. Voorbereiding van het CSV-bestand
-    Lever een CSV-bestand aan (bijv. een export uit Screaming Frog of een eigen lijst) met de volgende structuur:
-    * **Kolom A (eerste kolom):** Moet de volledige URL's bevatten.
-    * **Overige kolommen:** Hier mag content staan zoals de Page Title, H1 of de hoofdtekst.
+    ### 1. Preparing the CSV file
+    Provide a CSV file (e.g., an export from Screaming Frog or your own list) with the following structure:
+    * **Column A (first column):** Must contain the full URLs.
+    * **Other columns:** May contain content such as the Page Title, H1, or the main body text.
     
     ### 2. OpenAI API Key
-    Voer je eigen OpenAI API Key in de sidebar in.
+    Enter your own OpenAI API Key in the sidebar.
 
-    ### 3. Focus URL's
-    Plak in het tekstveld de URL's die je wilt analyseren. Gebruik één URL per regel.
+    ### 3. Focus URLs
+    Paste the URLs you want to analyze into the text field. Use one URL per line.
 
-    ### 4. De Matrix gebruiken
-    * Na de analyse verschijnt een **Cross-Linking Matrix**. 
-    * De matrix is standaard gesorteerd op relevantie.
-    * Klik op een **rij** in de matrix om direct alle specifieke link-kansen te openen.
+    ### 4. Using the Matrix
+    * After the analysis, a **Cross-Linking Matrix** will appear. 
+    * The matrix is sorted by relevance by default.
+    * Click on a **row** in the matrix to immediately open all specific linking opportunities.
     """)
 
 with tab_tool:
@@ -116,19 +116,19 @@ with tab_tool:
         urls_txt = st.text_area("2. Focus URL's (één per regel)", key="urls_input", height=100)
 
     # ========================================================
-    # 5. DE ANALYSE ENGINE
+    # 5. THE ANALYSIS
     # ========================================================
-    if st.button("🚀 GENEREER INTELLIGENCE MATRIX", width="stretch"):
+    if st.button("🚀 Generate", width="stretch"):
         missing = []
-        if not api_key: missing.append("OpenAI API Key (in de sidebar)")
-        if not file: missing.append("CSV-bestand")
+        if not api_key: missing.append("OpenAI API Key (in the sidebar)")
+        if not file: missing.append("CSV-file")
         if not urls_txt: missing.append("Focus URL's")
 
         if missing:
             st.error(f"⚠️ De volgende velden ontbreken: {', '.join(missing)}")
         else:
             try:
-                with st.spinner("Bezig met semantische analyse..."):
+                with st.spinner("Analysing..."):
                     raw_df = pd.read_csv(file)
                     url_col = raw_df.columns[0]
                     focus_list = [u.strip() for u in urls_txt.split('\n') if u.strip()]
@@ -162,7 +162,7 @@ with tab_tool:
                                     'From Hub': src_cat,
                                     'From Folder': get_folder(f_url),
                                     'Focus URL': f_url,
-                                    'To Hub': cat_lookup.get(t_url, "ALGEMEEN"),
+                                    'To Hub': cat_lookup.get(t_url, "General"),
                                     'To Folder': get_folder(t_url),
                                     'Target URL': t_url,
                                     'Score': s * 100
@@ -177,16 +177,16 @@ with tab_tool:
                 st.error(f"Systeemfout: {e}")
                 
     # ========================================================
-    # 6. INTERACTIEVE MATRIX & OUTPUT
+    # 6. INTERACTIVE MATRIX & OUTPUT
     # ========================================================
     if st.session_state.df_results is not None:
         data = st.session_state.df_results
         
         st.divider()
         st.subheader("📊 Cross-Linking Matrices (Intensity)")
-        st.info("💡 Klik op een rij om de details te zien. De matrix is gesorteerd op volume.")
+        st.info("💡 Click on a rij for more details. The matrix is in descending order with the most link opportunities first.")
 
-        tab_matrix_hub, tab_matrix_folder = st.tabs(["🗂️ Semantische Hub Matrix", "📁 Technische Folder Matrix"])
+        tab_matrix_hub, tab_matrix_folder = st.tabs(["🗂️ Semantic Hub Matrix", "📁 Path / Folder Matrix"])
 
         def style_matrix_cells(val, mx_val):
             if val == 0:
@@ -266,7 +266,7 @@ with tab_tool:
                 )
 
         # ========================================================
-        # 7. TOPIC HUBS OVERZICHT (Indeling op Sterkte)
+        # 7. TOPIC HUBS OVERVIEW
         # ========================================================
         st.divider()
         st.subheader("🏗️ Topic Hubs Overzicht")
@@ -323,7 +323,7 @@ with tab_tool:
         export_df.to_csv(csv_buffer, index=False, sep=';')
         
         st.download_button(
-            label="📥 Download Resultaten (CSV)",
+            label="📥 Download Results (CSV)",
             data=csv_buffer.getvalue(),
             file_name="seo_internal_links_matrix.csv",
             mime="text/csv",
