@@ -106,6 +106,15 @@ with tab_inst:
     * After the analysis, a **Cross-Linking Matrix** will appear. 
     * The matrix is sorted by relevance by default.
     * Click on a **row** in the matrix to immediately open all specific linking opportunities.
+    * Prioritize internal linking opportunities based on the relevant scores
+
+    ### 5. Using the Topic Hub Overview
+    * Click on a **Hub** in the Topic Hub Overview to open all specific linking opportunities.
+    * Prioritize internal linking opportunities based on the relevance scores.
+    
+    ### 6. Export results to CSV
+    * Use the **download button** at the bottom to export all Topic Hub results at once.
+    * You can also download each individual table separately by hovering over it and clicking the download icon.
     """)
 
 with tab_tool:
@@ -113,7 +122,7 @@ with tab_tool:
     with c1:
         file = st.file_uploader("1. Upload Website CSV", type=['csv'], key="csv_uploader")
     with c2:
-        urls_txt = st.text_area("2. Focus URL's (één per regel)", key="urls_input", height=100)
+        urls_txt = st.text_area("2. Focus URL's (1 per row)", key="urls_input", height=100)
 
     # ========================================================
     # 5. THE ANALYSIS
