@@ -63,7 +63,9 @@ def get_folder(url):
     except:
         return "/"
 
+@st.cache_data(show_spinner=False)
 def get_embeddings(texts, key):
+    """Fetches embeddings from OpenAI, cached to prevent duplicate API costs."""
     client = OpenAI(api_key=key)
     res = client.embeddings.create(input=texts, model='text-embedding-3-small')
     return np.array([d.embedding for d in res.data])
