@@ -232,7 +232,7 @@ with tab_tool:
 
         # --- TAB 1: HUB MATRIX ---
         with tab_matrix_hub:
-            dir_hub = st.selectbox("🔗 Select Link Direction:", ["Outbound (potential outgoing links to focus URL's)", "Inbound (potential incoming links to focus URL's"], key="dir_hub_select")
+            dir_hub = st.selectbox("🔗 Select Link Direction:", ["Outbound", "Inbound"], key="dir_hub_select")
             data_hub = data[data['Direction'] == dir_hub]
             
             if not data_hub.empty:
