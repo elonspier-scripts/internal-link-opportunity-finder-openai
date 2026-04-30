@@ -183,8 +183,8 @@ with tab_tool:
         data = st.session_state.df_results
         
         st.divider()
-        st.subheader("📊 Cross-Linking Matrices (Intensity)")
-        st.info("💡 Click on a rij for more details. The matrix is in descending order with the most link opportunities first.")
+        st.subheader("📊 Cross-Linking Matrix")
+        st.info("💡 Click on a row for more details. The matrix is in descending order with the most link opportunities first.")
 
         tab_matrix_hub, tab_matrix_folder = st.tabs(["🗂️ Semantic Hub Matrix", "📁 Path / Folder Matrix"])
 
@@ -269,14 +269,14 @@ with tab_tool:
         # 7. TOPIC HUBS OVERVIEW
         # ========================================================
         st.divider()
-        st.subheader("🏗️ Topic Hubs Overzicht")
+        st.subheader("🏗️ Topic Hubs Overview")
 
         hub_stats = data.groupby('From Hub')['Score'].mean().sort_values(ascending=False)
 
         tab_strong, tab_avg, tab_weak = st.tabs([
-            "🟢 Sterk (>= 85%)", 
-            "🟡 Gemiddeld (70-84%)", 
-            "🔴 Zwak (< 70%)"
+            "🟢 Strong (>= 85%)", 
+            "🟡 Average (70-84%)", 
+            "🔴 Weak (< 70%)"
         ])
 
         def render_hub_group(hubs_series):
