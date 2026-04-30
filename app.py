@@ -16,7 +16,7 @@ st.markdown("""
     <style>
     .stApp { background-color: #000000; color: #ffffff; }
     [data-testid="stSidebar"] { background-color: #050505 !important; border-right: 1px solid #1e1e1e; }
-    .stTextInput>div>div>input, .stTextArea>div>div>textarea {
+    .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div>div {
         background-color: #0a0a0a !important; color: #00a2ff !important; border: 1px solid #222 !important;
     }
     .stDataFrame, div[data-testid="stTable"] { 
@@ -108,11 +108,11 @@ with tab_inst:
     ### 4. Focus URLs
     Paste the URLs you want to analyze into the text field. Use one URL per line.
 
-    ### 5. Using the Matrix
+    ### 5. Using the Matrix (Bi-Directional)
     * After the analysis, a **Cross-Linking Matrix** will appear. 
-    * The matrix is sorted by relevance by default.
+    * Use the dropdown above each matrix to switch between **Outbound** (where your focus URL should link to) and **Inbound** (which pages should link to your focus URL).
     * Click on a **row** in the matrix to immediately open all specific linking opportunities.
-    * Prioritize internal linking opportunities based on the relevant scores
+    * The table will explicitly tell you which page you need to edit in your CMS.
 
     ### 6. Using the Topic Hub Overview
     * Click on a **Hub** in the Topic Hub Overview to open all specific linking opportunities.
@@ -173,15 +173,35 @@ with tab_tool:
                             t_url = clean_df.iloc[t_idx][url_col]
                             s = float(scores[t_idx])
                             if f_url != t_url and s >= score_threshold:
+                                
+                                # 1. OUTBOUND: Focus URL links out to the Target URL
                                 found.append({
+                                    'Direction': 'Outbound',
                                     'From Hub': src_cat,
                                     'From Folder': get_folder(f_url),
                                     'Focus URL': f_url,
                                     'To Hub': cat_lookup.get(t_url, "General"),
                                     'To Folder': get_folder(t_url),
                                     'Target URL': t_url,
+                                    'Page to Edit (Source)': f_url,
+                                    'Link Destination': t_url,
                                     'Score': s * 100
                                 })
+                                
+                                # 2. INBOUND: The Target URL links towards the Focus URL
+                                found.append({
+                                    'Direction': 'Inbound',
+                                    'From Hub': cat_lookup.get(t_url, "General"),
+                                    'From Folder': get_folder(t_url),
+                                    'Focus URL': f_url,
+                                    'To Hub': src_cat,
+                                    'To Folder': get_folder(f_url),
+                                    'Target URL': f_url,
+                                    'Page to Edit (Source)': t_url,
+                                    'Link Destination': f_url,
+                                    'Score': s * 100
+                                })
+                                
                                 added += 1
                                 if added >= links_per_page: break
 
@@ -212,81 +232,99 @@ with tab_tool:
 
         # --- TAB 1: HUB MATRIX ---
         with tab_matrix_hub:
-            matrix_hub = pd.crosstab(data['From Hub'], data['To Hub'])
-            row_order_hub = matrix_hub.sum(axis=1).sort_values(ascending=False).index
-            col_order_hub = matrix_hub.sum(axis=0).sort_values(ascending=False).index
-            matrix_hub = matrix_hub.reindex(index=row_order_hub, columns=col_order_hub, fill_value=0)
+            dir_hub = st.selectbox("🔗 Select Link Direction:", ["Outbound", "Inbound"], key="dir_hub_select")
+            data_hub = data[data['Direction'] == dir_hub]
+            
+            if not data_hub.empty:
+                matrix_hub = pd.crosstab(data_hub['From Hub'], data_hub['To Hub'])
+                row_order_hub = matrix_hub.sum(axis=1).sort_values(ascending=False).index
+                col_order_hub = matrix_hub.sum(axis=0).sort_values(ascending=False).index
+                matrix_hub = matrix_hub.reindex(index=row_order_hub, columns=col_order_hub, fill_value=0)
 
-            max_val_hub = matrix_hub.values.max() if matrix_hub.values.max() > 0 else 1
-            styled_matrix_hub = matrix_hub.style.map(lambda v: style_matrix_cells(v, max_val_hub))
+                max_val_hub = matrix_hub.values.max() if matrix_hub.values.max() > 0 else 1
+                styled_matrix_hub = matrix_hub.style.map(lambda v: style_matrix_cells(v, max_val_hub))
 
-            st.dataframe(
-                styled_matrix_hub,
-                width='stretch',
-                on_select="rerun",
-                selection_mode="single-row",
-                key="matrix_selector_hub"
-            )
-
-            selection_hub = st.session_state.get("matrix_selector_hub")
-            if selection_hub and selection_hub.get("selection", {}).get("rows"):
-                selected_idx = selection_hub["selection"]["rows"][0]
-                f_cat = matrix_hub.index[selected_idx]
-                
-                st.markdown(f"### 🎯 Outgoing link opportunities from Hub: `{f_cat}`")
-                filtered = data[data['From Hub'] == f_cat]
-                display_filtered = filtered[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
-                display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
-                
                 st.dataframe(
-                    display_filtered.style.map(color_score, subset=['Score']),
+                    styled_matrix_hub,
                     width='stretch',
-                    hide_index=True,
-                    column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    key="matrix_selector_hub"
                 )
+
+                selection_hub = st.session_state.get("matrix_selector_hub")
+                if selection_hub and selection_hub.get("selection", {}).get("rows"):
+                    selected_idx = selection_hub["selection"]["rows"][0]
+                    f_cat = matrix_hub.index[selected_idx]
+                    
+                    st.markdown(f"### 🎯 Links to place from Hub: `{f_cat}`")
+                    filtered = data_hub[data_hub['From Hub'] == f_cat]
+                    display_filtered = filtered[['Focus URL', 'Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+                    display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
+                    
+                    final_display = display_filtered[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']]
+                    
+                    st.dataframe(
+                        final_display.style.map(color_score, subset=['Score']),
+                        width='stretch',
+                        hide_index=True,
+                        column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                    )
+            else:
+                st.warning(f"No {dir_hub.lower()} links found with the current threshold.")
 
         # --- TAB 2: FOLDER MATRIX ---
         with tab_matrix_folder:
-            matrix_folder = pd.crosstab(data['From Folder'], data['To Folder'])
-            row_order_folder = matrix_folder.sum(axis=1).sort_values(ascending=False).index
-            col_order_folder = matrix_folder.sum(axis=0).sort_values(ascending=False).index
-            matrix_folder = matrix_folder.reindex(index=row_order_folder, columns=col_order_folder, fill_value=0)
+            dir_folder = st.selectbox("🔗 Select Link Direction:", ["Outbound", "Inbound"], key="dir_folder_select")
+            data_folder = data[data['Direction'] == dir_folder]
+            
+            if not data_folder.empty:
+                matrix_folder = pd.crosstab(data_folder['From Folder'], data_folder['To Folder'])
+                row_order_folder = matrix_folder.sum(axis=1).sort_values(ascending=False).index
+                col_order_folder = matrix_folder.sum(axis=0).sort_values(ascending=False).index
+                matrix_folder = matrix_folder.reindex(index=row_order_folder, columns=col_order_folder, fill_value=0)
 
-            max_val_folder = matrix_folder.values.max() if matrix_folder.values.max() > 0 else 1
-            styled_matrix_folder = matrix_folder.style.map(lambda v: style_matrix_cells(v, max_val_folder))
+                max_val_folder = matrix_folder.values.max() if matrix_folder.values.max() > 0 else 1
+                styled_matrix_folder = matrix_folder.style.map(lambda v: style_matrix_cells(v, max_val_folder))
 
-            st.dataframe(
-                styled_matrix_folder,
-                width='stretch',
-                on_select="rerun",
-                selection_mode="single-row",
-                key="matrix_selector_folder"
-            )
-
-            selection_folder = st.session_state.get("matrix_selector_folder")
-            if selection_folder and selection_folder.get("selection", {}).get("rows"):
-                selected_idx = selection_folder["selection"]["rows"][0]
-                f_folder = matrix_folder.index[selected_idx]
-                
-                st.markdown(f"### 🎯 Uitgaande links vanuit Folder: `{f_folder}`")
-                filtered_folder = data[data['From Folder'] == f_folder]
-                display_filtered_folder = filtered_folder[['Focus URL', 'To Folder', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
-                display_filtered_folder.loc[display_filtered_folder.duplicated('Focus URL'), 'Focus URL'] = ""
-                
                 st.dataframe(
-                    display_filtered_folder.style.map(color_score, subset=['Score']),
+                    styled_matrix_folder,
                     width='stretch',
-                    hide_index=True,
-                    column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    key="matrix_selector_folder"
                 )
+
+                selection_folder = st.session_state.get("matrix_selector_folder")
+                if selection_folder and selection_folder.get("selection", {}).get("rows"):
+                    selected_idx = selection_folder["selection"]["rows"][0]
+                    f_folder = matrix_folder.index[selected_idx]
+                    
+                    st.markdown(f"### 🎯 Links to place from Folder: `{f_folder}`")
+                    filtered_folder = data_folder[data_folder['From Folder'] == f_folder]
+                    display_filtered_folder = filtered_folder[['Focus URL', 'Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+                    display_filtered_folder.loc[display_filtered_folder.duplicated('Focus URL'), 'Focus URL'] = ""
+                    
+                    final_display_folder = display_filtered_folder[['Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score']]
+
+                    st.dataframe(
+                        final_display_folder.style.map(color_score, subset=['Score']),
+                        width='stretch',
+                        hide_index=True,
+                        column_config={"Score": st.column_config.NumberColumn(format="%d%%")}
+                    )
+            else:
+                st.warning(f"No {dir_folder.lower()} links found with the current threshold.")
 
         # ========================================================
         # 7. TOPIC HUBS OVERVIEW
         # ========================================================
         st.divider()
-        st.subheader("🏗️ Topic Hubs Overview")
+        st.subheader("🏗️ Topic Hubs Overview (Outbound)")
+        st.info("This overview shows the standard outbound perspective for your focus URLs.")
 
-        hub_stats = data.groupby('From Hub')['Score'].mean().sort_values(ascending=False)
+        overview_data = data[data['Direction'] == 'Outbound']
+        hub_stats = overview_data.groupby('From Hub')['Score'].mean().sort_values(ascending=False)
 
         tab_strong, tab_avg, tab_weak = st.tabs([
             "🟢 Strong (>= 85%)", 
@@ -299,10 +337,10 @@ with tab_tool:
                 st.info("Geen hubs gevonden voor deze categorie.")
             else:
                 for hub, avg_score in hubs_series.items():
-                    hub_df = data[data['From Hub'] == hub]
+                    hub_df = overview_data[overview_data['From Hub'] == hub]
                     with st.expander(f"📁 HUB: {hub} ({round(avg_score)}%)"):
-                        display_hub = hub_df[['Focus URL', 'To Hub', 'Target URL', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
-                        display_hub.loc[display_hub.duplicated('Focus URL'), 'Focus URL'] = ""
+                        display_hub = hub_df[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].sort_values(by=['Page to Edit (Source)', 'Score'], ascending=[True, False]).copy()
+                        display_hub.loc[display_hub.duplicated('Page to Edit (Source)'), 'Page to Edit (Source)'] = ""
                         
                         st.dataframe(
                             display_hub.style.map(color_score, subset=['Score']),
@@ -328,11 +366,12 @@ with tab_tool:
         # ========================================================
         st.divider()
         export_df = data.copy()
-        export_df = export_df.sort_values(by=['From Hub', 'Focus URL', 'Score'], ascending=[True, True, False])
+        export_df = export_df.sort_values(by=['Direction', 'From Hub', 'Focus URL', 'Score'], ascending=[True, True, True, False])
         export_df['Score'] = export_df['Score'].apply(lambda x: f"{round(x)}%")
         
-        export_df.loc[export_df.duplicated(subset=['From Hub', 'Focus URL']), 'Focus URL'] = ""
-        export_df.loc[export_df.duplicated(subset=['From Hub']), 'From Hub'] = ""
+        export_df.loc[export_df.duplicated(subset=['Direction', 'From Hub', 'Focus URL']), 'Focus URL'] = ""
+        export_df.loc[export_df.duplicated(subset=['Direction', 'From Hub']), 'From Hub'] = ""
+        export_df.loc[export_df.duplicated(subset=['Direction']), 'Direction'] = ""
         
         csv_buffer = io.StringIO()
         export_df.to_csv(csv_buffer, index=False, sep=';')
@@ -340,7 +379,7 @@ with tab_tool:
         st.download_button(
             label="📥 Download Results (CSV)",
             data=csv_buffer.getvalue(),
-            file_name="seo_internal_links_matrix.csv",
+            file_name="seo_bidirectional_links_matrix.csv",
             mime="text/csv",
             width="stretch"
         )
