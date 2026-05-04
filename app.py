@@ -113,7 +113,7 @@ with tab_inst:
     Enter your own OpenAI API Key in the sidebar.
 
     ### 4. Focus URLs
-    Paste the URLs you want to analyze into the text field. Use one URL per line.
+    Paste the URLs you want to analyze into the text field. Use one URL per line.(The focus URL should be in the .csv you have uploaded aswell).
 
     ### 5. Using the Matrix (Bi-Directional)
     * After the analysis, a **Cross-Linking Matrix** will appear. 
