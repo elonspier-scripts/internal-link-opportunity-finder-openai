@@ -6,6 +6,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 import re
 import io
 import hashlib
+import requests
+import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
 # ========================================================
@@ -63,6 +65,56 @@ def get_folder(url):
         return f"/{first_folder}/"
     except:
         return "/"
+
+def parse_sitemap_xml(xml_text):
+    urls = []
+    try:
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return urls, []
+
+    ns = {'sm': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+
+    url_locs = root.findall('.//sm:url/sm:loc', ns)
+    if not url_locs:
+        url_locs = root.findall('.//url/loc')
+    for loc in url_locs:
+        if loc.text and loc.text.strip():
+            urls.append(loc.text.strip())
+
+    child_sitemaps = []
+    sm_locs = root.findall('.//sm:sitemap/sm:loc', ns)
+    if not sm_locs:
+        sm_locs = root.findall('.//sitemap/loc')
+    for loc in sm_locs:
+        if loc.text and loc.text.strip():
+            child_sitemaps.append(loc.text.strip())
+
+    return urls, child_sitemaps
+
+def fetch_sitemap_urls(sitemap_url, max_sitemaps=25):
+    pending = [sitemap_url]
+    visited = set()
+    collected_urls = []
+
+    while pending and len(visited) < max_sitemaps:
+        current = pending.pop(0)
+        if current in visited:
+            continue
+        visited.add(current)
+
+        response = requests.get(current, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+        response.raise_for_status()
+
+        urls, child_sitemaps = parse_sitemap_xml(response.text)
+        if urls:
+            collected_urls.extend(urls)
+        for child in child_sitemaps:
+            if child not in visited:
+                pending.append(child)
+
+    deduped = list(dict.fromkeys([u for u in collected_urls if str(u).strip()]))
+    return deduped
 
 @st.cache_data(show_spinner=False)
 def get_file_hash(file_bytes):
@@ -143,6 +195,7 @@ with tab_tool:
     c1, c2 = st.columns([1, 1])
     with c1:
         file = st.file_uploader("1. Upload Website CSV", type=['csv'], key="csv_uploader")
+        sitemap_url = st.text_input("or Sitemap URL", placeholder="https://example.com/sitemap.xml", key="sitemap_input")
     with c2:
         urls_txt = st.text_area("2. Focus URL's (1 per row)", key="urls_input", height=100)
 
@@ -152,18 +205,31 @@ with tab_tool:
     if st.button("🚀 Generate", width="stretch"):
         missing = []
         if not api_key: missing.append("OpenAI API Key (in the sidebar)")
-        if not file: missing.append("CSV-file")
-        if not urls_txt: missing.append("Focus URL's")
+        using_sitemap_input = bool(sitemap_url.strip())
+        if not file and not using_sitemap_input: missing.append("CSV-file or Sitemap URL")
+        if not using_sitemap_input and not urls_txt: missing.append("Focus URL's")
 
         if missing:
             st.error(f"⚠️ De volgende velden ontbreken: {', '.join(missing)}")
         else:
             try:
                 with st.spinner("Analysing..."):
-                    file_bytes = file.getvalue()
-                    file_hash = get_file_hash(file_bytes)
-                    raw_df = pd.read_csv(io.BytesIO(file_bytes))
-                    url_col = raw_df.columns[0]
+                    using_sitemap = bool(sitemap_url.strip())
+
+                    if using_sitemap:
+                        sitemap_urls = fetch_sitemap_urls(sitemap_url.strip())
+                        if not sitemap_urls:
+                            st.error("No URLs found in sitemap.")
+                            st.stop()
+                        raw_df = pd.DataFrame({"URL": sitemap_urls})
+                        url_col = "URL"
+                        file_hash = get_file_hash("\n".join(sitemap_urls).encode("utf-8"))
+                    else:
+                        file_bytes = file.getvalue()
+                        file_hash = get_file_hash(file_bytes)
+                        raw_df = pd.read_csv(io.BytesIO(file_bytes))
+                        url_col = raw_df.columns[0]
+
                     focus_list = [u.strip() for u in urls_txt.split('\n') if u.strip()]
                     embedding_model = 'text-embedding-3-small'
                     
@@ -173,14 +239,19 @@ with tab_tool:
                     
                     content_cols = [c for c in clean_df.columns if c != url_col]
                     clean_df['url_text'] = clean_df[url_col].astype(str).apply(clean_path)
-                    if content_cols:
-                        content_text = clean_df[content_cols].astype(str).agg(" ".join, axis=1)
-                    else:
-                        content_text = pd.Series(["" for _ in range(len(clean_df))], index=clean_df.index)
 
-                    clean_df['text'] = (clean_df['url_text'] + " " + content_text).str.replace(r"\s+", " ", regex=True).str.strip()
+                    if using_sitemap:
+                        clean_df['text'] = clean_df['url_text'].str.replace(r"\s+", " ", regex=True).str.strip()
+                    elif content_cols:
+                        content_text = clean_df[content_cols].astype(str).agg(" ".join, axis=1)
+                        clean_df['text'] = (clean_df['url_text'] + " " + content_text).str.replace(r"\s+", " ", regex=True).str.strip()
+                    else:
+                        clean_df['text'] = clean_df['url_text'].str.replace(r"\s+", " ", regex=True).str.strip()
                     clean_df['Category'] = clean_df['text'].apply(get_cat)
                     cat_lookup = dict(zip(clean_df[url_col], clean_df['Category']))
+
+                    if using_sitemap and not focus_list:
+                        focus_list = clean_df[url_col].astype(str).tolist()
 
                     vecs = get_embeddings(tuple(clean_df['text'].tolist()), api_key, embedding_model, file_hash)
                     sims = get_similarity_matrix(vecs, file_hash, embedding_model)
