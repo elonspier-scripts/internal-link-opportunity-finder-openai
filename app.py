@@ -5,6 +5,7 @@ from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 import re
 import io
+import hashlib
 from urllib.parse import urlparse
 
 # ========================================================
@@ -64,11 +65,19 @@ def get_folder(url):
         return "/"
 
 @st.cache_data(show_spinner=False)
-def get_embeddings(texts, key):
+def get_file_hash(file_bytes):
+    return hashlib.md5(file_bytes).hexdigest()
+
+@st.cache_data(show_spinner=False)
+def get_embeddings(texts, key, model_name, file_hash):
     """Fetches embeddings from OpenAI, cached to prevent duplicate API costs."""
     client = OpenAI(api_key=key)
-    res = client.embeddings.create(input=texts, model='text-embedding-3-small')
+    res = client.embeddings.create(input=list(texts), model=model_name)
     return np.array([d.embedding for d in res.data])
+
+@st.cache_data(show_spinner=False)
+def get_similarity_matrix(vectors, file_hash, model_name):
+    return cosine_similarity(vectors)
 
 def get_cat(text):
     words = re.findall(r'\w{4,}', str(text).lower())
@@ -151,20 +160,30 @@ with tab_tool:
         else:
             try:
                 with st.spinner("Analysing..."):
-                    raw_df = pd.read_csv(file)
+                    file_bytes = file.getvalue()
+                    file_hash = get_file_hash(file_bytes)
+                    raw_df = pd.read_csv(io.BytesIO(file_bytes))
                     url_col = raw_df.columns[0]
                     focus_list = [u.strip() for u in urls_txt.split('\n') if u.strip()]
+                    embedding_model = 'text-embedding-3-small'
                     
                     clean_df = raw_df.dropna(subset=[url_col]).copy()
                     clean_df = clean_df.fillna("")
                     clean_df = clean_df[clean_df[url_col].astype(str).str.strip() != ""]
                     
-                    clean_df['text'] = clean_df[url_col].astype(str).apply(clean_path) + " " + clean_df.iloc[:, 1].astype(str)
+                    content_cols = [c for c in clean_df.columns if c != url_col]
+                    clean_df['url_text'] = clean_df[url_col].astype(str).apply(clean_path)
+                    if content_cols:
+                        content_text = clean_df[content_cols].astype(str).agg(" ".join, axis=1)
+                    else:
+                        content_text = pd.Series(["" for _ in range(len(clean_df))], index=clean_df.index)
+
+                    clean_df['text'] = (clean_df['url_text'] + " " + content_text).str.replace(r"\s+", " ", regex=True).str.strip()
                     clean_df['Category'] = clean_df['text'].apply(get_cat)
                     cat_lookup = dict(zip(clean_df[url_col], clean_df['Category']))
 
-                    vecs = get_embeddings(clean_df['text'].tolist(), api_key)
-                    sims = cosine_similarity(vecs)
+                    vecs = get_embeddings(tuple(clean_df['text'].tolist()), api_key, embedding_model, file_hash)
+                    sims = get_similarity_matrix(vecs, file_hash, embedding_model)
 
                     found = []
                     for f_url in focus_list:
