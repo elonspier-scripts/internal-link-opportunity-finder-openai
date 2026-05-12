@@ -48,9 +48,9 @@ with st.sidebar:
     score_threshold = st.slider("Minimum Match threshold %", 50, 95, 80) / 100
     links_per_page = st.slider("Links per URL", 1, 10, 5)
     check_existing_links = st.toggle(
-        "Check existing links (boilerplate excluded)",
+        "Check and hide existing links",
         value=False,
-        help="Checks if recommended links already exist on the page while excluding boilerplate areas like header, nav, footer, and sidebar."
+        help="Checks if recommended links already exist on the page (boilerplate excluded) and hides matches that already exist."
     )
 
 # ========================================================
@@ -367,6 +367,8 @@ with tab_tool:
                                 row['Existing Link'] = "Yes"
                             else:
                                 row['Existing Link'] = "No"
+
+                        found = [row for row in found if row.get('Existing Link') != "Yes"]
                     else:
                         for row in found:
                             row['Existing Link'] = "Not checked"
