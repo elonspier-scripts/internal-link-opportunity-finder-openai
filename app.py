@@ -478,17 +478,6 @@ with tab_tool:
                 max_val_hub = matrix_hub.values.max() if matrix_hub.values.max() > 0 else 1
                 styled_matrix_hub = matrix_hub.style.map(lambda v: style_matrix_cells(v, max_val_hub))
 
-                hub_select_all_key = f"hub_select_all_active_{dir_hub.lower()}"
-                if hub_select_all_key not in st.session_state:
-                    st.session_state[hub_select_all_key] = False
-
-                hub_controls_left, hub_controls_right = st.columns([1, 1])
-                with hub_controls_left:
-                    if st.button("Select all hub rows", key=f"btn_select_all_hubs_{dir_hub.lower()}", width='stretch'):
-                        st.session_state[hub_select_all_key] = not st.session_state[hub_select_all_key]
-                with hub_controls_right:
-                    pass
-
                 st.dataframe(styled_matrix_hub, width='stretch', on_select="rerun", selection_mode="multi-row", key="matrix_selector_hub")
 
                 hub_csv_buffer = io.StringIO()
@@ -502,12 +491,9 @@ with tab_tool:
                 )
 
                 selected_hubs = []
-                if st.session_state.get(hub_select_all_key, False):
-                    selected_hubs = list(matrix_hub.index)
-                else:
-                    selection_hub = st.session_state.get("matrix_selector_hub")
-                    if selection_hub and selection_hub.get("selection", {}).get("rows"):
-                        selected_hubs = [matrix_hub.index[i] for i in selection_hub["selection"]["rows"] if i < len(matrix_hub.index)]
+                selection_hub = st.session_state.get("matrix_selector_hub")
+                if selection_hub and selection_hub.get("selection", {}).get("rows"):
+                    selected_hubs = [matrix_hub.index[i] for i in selection_hub["selection"]["rows"] if i < len(matrix_hub.index)]
 
                 if selected_hubs:
                     st.markdown(f"### 🎯 Links to place from Hub rows: `{len(selected_hubs)}` selected")
@@ -541,17 +527,6 @@ with tab_tool:
                 max_val_folder = matrix_folder.values.max() if matrix_folder.values.max() > 0 else 1
                 styled_matrix_folder = matrix_folder.style.map(lambda v: style_matrix_cells(v, max_val_folder))
 
-                folder_select_all_key = f"folder_select_all_active_{dir_folder.lower()}"
-                if folder_select_all_key not in st.session_state:
-                    st.session_state[folder_select_all_key] = False
-
-                folder_controls_left, folder_controls_right = st.columns([1, 1])
-                with folder_controls_left:
-                    if st.button("Select all folder rows", key=f"btn_select_all_folders_{dir_folder.lower()}", width='stretch'):
-                        st.session_state[folder_select_all_key] = not st.session_state[folder_select_all_key]
-                with folder_controls_right:
-                    pass
-
                 st.dataframe(styled_matrix_folder, width='stretch', on_select="rerun", selection_mode="multi-row", key="matrix_selector_folder")
 
                 folder_csv_buffer = io.StringIO()
@@ -565,12 +540,9 @@ with tab_tool:
                 )
 
                 selected_folders = []
-                if st.session_state.get(folder_select_all_key, False):
-                    selected_folders = list(matrix_folder.index)
-                else:
-                    selection_folder = st.session_state.get("matrix_selector_folder")
-                    if selection_folder and selection_folder.get("selection", {}).get("rows"):
-                        selected_folders = [matrix_folder.index[i] for i in selection_folder["selection"]["rows"] if i < len(matrix_folder.index)]
+                selection_folder = st.session_state.get("matrix_selector_folder")
+                if selection_folder and selection_folder.get("selection", {}).get("rows"):
+                    selected_folders = [matrix_folder.index[i] for i in selection_folder["selection"]["rows"] if i < len(matrix_folder.index)]
 
                 if selected_folders:
                     st.markdown(f"### 🎯 Links to place from Folder rows: `{len(selected_folders)}` selected")
