@@ -435,7 +435,7 @@ with tab_tool:
                         f_cat = matrix_hub.index[selected_idx]
                         st.markdown(f"### 🎯 Links to place from Hub: `{f_cat}`")
                         filtered = data_hub[data_hub['From Hub'] == f_cat].copy()
-                        display_filtered = filtered[['Focus URL', 'Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+                        display_filtered = filtered[['Focus URL', 'Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score', 'Existing Link']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
                         display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
                         
                         # Formatting logic for Warning Label
@@ -473,7 +473,7 @@ with tab_tool:
                         f_folder = matrix_folder.index[selected_idx]
                         st.markdown(f"### 🎯 Links to place from Folder: `{f_folder}`")
                         filtered_folder = data_folder[data_folder['From Folder'] == f_folder].copy()
-                        display_filtered_folder = filtered_folder[['Focus URL', 'Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+                        display_filtered_folder = filtered_folder[['Focus URL', 'Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score', 'Existing Link']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
                         display_filtered_folder.loc[display_filtered_folder.duplicated('Focus URL'), 'Focus URL'] = ""
                         
                         final_display_folder = display_filtered_folder[['Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score', 'Existing Link']].copy()
