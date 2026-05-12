@@ -367,8 +367,6 @@ with tab_tool:
                                 row['Existing Link'] = "Yes"
                             else:
                                 row['Existing Link'] = "No"
-
-                        found = [row for row in found if row.get('Existing Link') != "Yes"]
                     else:
                         for row in found:
                             row['Existing Link'] = "Not checked"
@@ -384,6 +382,22 @@ with tab_tool:
     # ========================================================
     if st.session_state.df_results is not None:
         data = st.session_state.df_results.copy()
+
+        if 'Existing Link' not in data.columns:
+            data['Existing Link'] = "Not checked"
+
+        hide_existing_links_display = st.toggle(
+            "Hide existing links in results",
+            value=check_existing_links,
+            help="Filter out rows where the destination link already exists on the source page.",
+            key="hide_existing_links_display"
+        )
+
+        if hide_existing_links_display:
+            data = data[data['Existing Link'] != 'Yes'].copy()
+            if data.empty:
+                st.info("No opportunities left after hiding existing links.")
+                st.stop()
         
         st.divider()
         st.subheader("📊 Cross-Linking Matrix")
@@ -417,21 +431,22 @@ with tab_tool:
                 selection_hub = st.session_state.get("matrix_selector_hub")
                 if selection_hub and selection_hub.get("selection", {}).get("rows"):
                     selected_idx = selection_hub["selection"]["rows"][0]
-                    f_cat = matrix_hub.index[selected_idx]
-                    st.markdown(f"### 🎯 Links to place from Hub: `{f_cat}`")
-                    filtered = data_hub[data_hub['From Hub'] == f_cat].copy()
-                    display_filtered = filtered[['Focus URL', 'Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
-                    display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
-                    
-                    # Formatting logic for Warning Label
-                    final_display = display_filtered[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score', 'Existing Link']].copy()
-                    final_display['Score'] = final_display['Score'].apply(lambda x: f"{int(x)}% ⚠️" if x >= 95 else f"{int(x)}%")
-                    
-                    st.dataframe(
-                        final_display.style.map(color_score, subset=['Score']),
-                        width='stretch',
-                        hide_index=True
-                    )
+                    if selected_idx < len(matrix_hub.index):
+                        f_cat = matrix_hub.index[selected_idx]
+                        st.markdown(f"### 🎯 Links to place from Hub: `{f_cat}`")
+                        filtered = data_hub[data_hub['From Hub'] == f_cat].copy()
+                        display_filtered = filtered[['Focus URL', 'Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+                        display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
+                        
+                        # Formatting logic for Warning Label
+                        final_display = display_filtered[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score', 'Existing Link']].copy()
+                        final_display['Score'] = final_display['Score'].apply(lambda x: f"{int(x)}% ⚠️" if x >= 95 else f"{int(x)}%")
+                        
+                        st.dataframe(
+                            final_display.style.map(color_score, subset=['Score']),
+                            width='stretch',
+                            hide_index=True
+                        )
             else:
                 st.warning(f"No {dir_hub.lower()} links found.")
 
@@ -454,20 +469,21 @@ with tab_tool:
                 selection_folder = st.session_state.get("matrix_selector_folder")
                 if selection_folder and selection_folder.get("selection", {}).get("rows"):
                     selected_idx = selection_folder["selection"]["rows"][0]
-                    f_folder = matrix_folder.index[selected_idx]
-                    st.markdown(f"### 🎯 Links to place from Folder: `{f_folder}`")
-                    filtered_folder = data_folder[data_folder['From Folder'] == f_folder].copy()
-                    display_filtered_folder = filtered_folder[['Focus URL', 'Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
-                    display_filtered_folder.loc[display_filtered_folder.duplicated('Focus URL'), 'Focus URL'] = ""
-                    
-                    final_display_folder = display_filtered_folder[['Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score', 'Existing Link']].copy()
-                    final_display_folder['Score'] = final_display_folder['Score'].apply(lambda x: f"{int(x)}% ⚠️" if x >= 95 else f"{int(x)}%")
+                    if selected_idx < len(matrix_folder.index):
+                        f_folder = matrix_folder.index[selected_idx]
+                        st.markdown(f"### 🎯 Links to place from Folder: `{f_folder}`")
+                        filtered_folder = data_folder[data_folder['From Folder'] == f_folder].copy()
+                        display_filtered_folder = filtered_folder[['Focus URL', 'Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
+                        display_filtered_folder.loc[display_filtered_folder.duplicated('Focus URL'), 'Focus URL'] = ""
+                        
+                        final_display_folder = display_filtered_folder[['Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score', 'Existing Link']].copy()
+                        final_display_folder['Score'] = final_display_folder['Score'].apply(lambda x: f"{int(x)}% ⚠️" if x >= 95 else f"{int(x)}%")
 
-                    st.dataframe(
-                        final_display_folder.style.map(color_score, subset=['Score']),
-                        width='stretch',
-                        hide_index=True
-                    )
+                        st.dataframe(
+                            final_display_folder.style.map(color_score, subset=['Score']),
+                            width='stretch',
+                            hide_index=True
+                        )
             else:
                 st.warning(f"No {dir_folder.lower()} links found.")
 
