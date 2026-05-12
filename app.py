@@ -478,22 +478,33 @@ with tab_tool:
                 max_val_hub = matrix_hub.values.max() if matrix_hub.values.max() > 0 else 1
                 styled_matrix_hub = matrix_hub.style.map(lambda v: style_matrix_cells(v, max_val_hub))
 
-                st.dataframe(styled_matrix_hub, width='stretch', on_select="rerun", selection_mode="multi-row", key="matrix_selector_hub")
-
-                select_all_hubs = st.checkbox("Select all hub rows", value=False, key=f"select_all_hubs_{dir_hub.lower()}")
-
                 hub_csv_buffer = io.StringIO()
                 matrix_hub.to_csv(hub_csv_buffer, sep=';')
-                st.download_button(
-                    label=f"📥 Download Semantic Hub Matrix ({dir_hub})",
-                    data=hub_csv_buffer.getvalue(),
-                    file_name=f"semantic_hub_matrix_{dir_hub.lower()}.csv",
-                    mime="text/csv",
-                    key=f"download_hub_matrix_{dir_hub.lower()}"
-                )
+
+                hub_select_all_key = f"hub_select_all_active_{dir_hub.lower()}"
+                if hub_select_all_key not in st.session_state:
+                    st.session_state[hub_select_all_key] = False
+
+                hub_controls_left, hub_controls_mid, hub_controls_right = st.columns([1, 1, 1])
+                with hub_controls_left:
+                    if st.button("Select all hub rows", key=f"btn_select_all_hubs_{dir_hub.lower()}", width='stretch'):
+                        st.session_state[hub_select_all_key] = True
+                with hub_controls_mid:
+                    if st.button("Clear hub selection", key=f"btn_clear_all_hubs_{dir_hub.lower()}", width='stretch'):
+                        st.session_state[hub_select_all_key] = False
+                with hub_controls_right:
+                    st.download_button(
+                        label=f"📥 Download Semantic Hub Matrix ({dir_hub})",
+                        data=hub_csv_buffer.getvalue(),
+                        file_name=f"semantic_hub_matrix_{dir_hub.lower()}.csv",
+                        mime="text/csv",
+                        key=f"download_hub_matrix_{dir_hub.lower()}"
+                    )
+
+                st.dataframe(styled_matrix_hub, width='stretch', on_select="rerun", selection_mode="multi-row", key="matrix_selector_hub")
 
                 selected_hubs = []
-                if select_all_hubs:
+                if st.session_state.get(hub_select_all_key, False):
                     selected_hubs = list(matrix_hub.index)
                 else:
                     selection_hub = st.session_state.get("matrix_selector_hub")
@@ -532,19 +543,22 @@ with tab_tool:
                 max_val_folder = matrix_folder.values.max() if matrix_folder.values.max() > 0 else 1
                 styled_matrix_folder = matrix_folder.style.map(lambda v: style_matrix_cells(v, max_val_folder))
 
-                st.dataframe(styled_matrix_folder, width='stretch', on_select="rerun", selection_mode="multi-row", key="matrix_selector_folder")
-
-                select_all_folders = st.checkbox("Select all folder rows", value=False, key=f"select_all_folders_{dir_folder.lower()}")
-
                 folder_csv_buffer = io.StringIO()
                 matrix_folder.to_csv(folder_csv_buffer, sep=';')
-                st.download_button(
-                    label=f"📥 Download Folder Matrix ({dir_folder})",
-                    data=folder_csv_buffer.getvalue(),
-                    file_name=f"folder_matrix_{dir_folder.lower()}.csv",
-                    mime="text/csv",
-                    key=f"download_folder_matrix_{dir_folder.lower()}"
-                )
+
+                folder_controls_left, folder_controls_right = st.columns([1, 1])
+                with folder_controls_left:
+                    select_all_folders = st.checkbox("Select all folder rows", value=False, key=f"select_all_folders_{dir_folder.lower()}")
+                with folder_controls_right:
+                    st.download_button(
+                        label=f"📥 Download Folder Matrix ({dir_folder})",
+                        data=folder_csv_buffer.getvalue(),
+                        file_name=f"folder_matrix_{dir_folder.lower()}.csv",
+                        mime="text/csv",
+                        key=f"download_folder_matrix_{dir_folder.lower()}"
+                    )
+
+                st.dataframe(styled_matrix_folder, width='stretch', on_select="rerun", selection_mode="multi-row", key="matrix_selector_folder")
 
                 selected_folders = []
                 if select_all_folders:
