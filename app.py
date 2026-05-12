@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from openai import OpenAI
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.neighbors import NearestNeighbors
 import re
 import io
 import hashlib
@@ -197,8 +197,16 @@ def get_embeddings(texts, key, model_name, file_hash):
     return np.array([d.embedding for d in res.data])
 
 @st.cache_data(show_spinner=False)
-def get_similarity_matrix(vectors, file_hash, model_name):
-    return cosine_similarity(vectors)
+def get_top_k_neighbors(vectors, file_hash, model_name, internal_k):
+    n_rows = len(vectors)
+    n_neighbors = min(max(2, internal_k + 1), n_rows)
+
+    nn = NearestNeighbors(n_neighbors=n_neighbors, metric='cosine')
+    nn.fit(vectors)
+    distances, indices = nn.kneighbors(vectors)
+
+    similarities = 1.0 - distances
+    return indices, similarities
 
 def get_cat(text):
     words = re.findall(r'\w{4,}', str(text).lower())
@@ -305,6 +313,7 @@ with tab_tool:
                     clean_df = raw_df.dropna(subset=[url_col]).copy()
                     clean_df = clean_df.fillna("")
                     clean_df = clean_df[clean_df[url_col].astype(str).str.strip() != ""]
+                    clean_df = clean_df.reset_index(drop=True)
                     
                     content_cols = [c for c in clean_df.columns if c != url_col]
                     clean_df['url_text'] = clean_df[url_col].astype(str).apply(clean_path)
@@ -327,7 +336,8 @@ with tab_tool:
                         tuple(focus_list),
                         links_per_page,
                         check_existing_links,
-                        embedding_model
+                        embedding_model,
+                        20
                     )
 
                     if st.session_state.df_results is not None and st.session_state.analysis_signature == analysis_signature:
@@ -335,7 +345,8 @@ with tab_tool:
                         st.rerun()
 
                     vecs = get_embeddings(tuple(clean_df['text'].tolist()), api_key, embedding_model, file_hash)
-                    sims = get_similarity_matrix(vecs, file_hash, embedding_model)
+                    internal_k = 20
+                    neighbor_indices, neighbor_scores = get_top_k_neighbors(vecs, file_hash, embedding_model, internal_k)
 
                     found = []
                     base_score_threshold = 0.50
@@ -343,14 +354,11 @@ with tab_tool:
                         if f_url not in clean_df[url_col].values: continue
                         idx_src = clean_df.index[clean_df[url_col] == f_url].tolist()[0]
                         src_cat = clean_df.iloc[idx_src]['Category']
-                        
-                        scores = sims[idx_src]
-                        top_idx = np.argsort(scores)[::-1]
-                        
+
                         added = 0
-                        for t_idx in top_idx:
+                        for t_idx, s in zip(neighbor_indices[idx_src], neighbor_scores[idx_src]):
                             t_url = clean_df.iloc[t_idx][url_col]
-                            s = float(scores[t_idx])
+                            s = float(s)
                             if f_url != t_url and s >= base_score_threshold:
                                 
                                 # 1. OUTBOUND
