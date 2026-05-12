@@ -5,3 +5,5 @@ openai
 scikit-learn
 xlsxwriter
 plotly
+requests
+beautifulsoup4

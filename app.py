@@ -8,6 +8,7 @@ import io
 import hashlib
 import requests
 import xml.etree.ElementTree as ET
+from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 
 # ========================================================
@@ -46,6 +47,11 @@ with st.sidebar:
     st.divider()
     score_threshold = st.slider("Minimum Match threshold %", 50, 95, 80) / 100
     links_per_page = st.slider("Links per URL", 1, 10, 5)
+    check_existing_links = st.toggle(
+        "Check existing links (boilerplate excluded)",
+        value=False,
+        help="Checks if recommended links already exist on the page while excluding boilerplate areas like header, nav, footer, and sidebar."
+    )
 
 # ========================================================
 # 3. HELPERS
@@ -115,6 +121,44 @@ def fetch_sitemap_urls(sitemap_url, max_sitemaps=25):
 
     deduped = list(dict.fromkeys([u for u in collected_urls if str(u).strip()]))
     return deduped
+
+def normalize_compare_url(url):
+    if not url:
+        return ""
+    parsed = urlparse(str(url).strip())
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return ""
+    path = parsed.path or "/"
+    if path != "/":
+        path = path.rstrip('/')
+    return f"{parsed.scheme}://{parsed.netloc.lower()}{path}"
+
+def extract_main_content_links(page_url):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(page_url, timeout=15, headers=headers)
+    response.raise_for_status()
+
+    soup = BeautifulSoup(response.text, 'html.parser')
+    links = set()
+    for anchor in soup.find_all('a', href=True):
+        if anchor.find_parent(['header', 'nav', 'footer', 'aside']):
+            continue
+        if anchor.find_parent(attrs={'role': re.compile(r'navigation', re.I)}):
+            continue
+        if anchor.find_parent(class_=re.compile(r'footer|menu|sidebar|breadcrumb|breadcrumbs', re.I)):
+            continue
+        if anchor.find_parent(id=re.compile(r'footer|menu|sidebar|breadcrumb|breadcrumbs', re.I)):
+            continue
+
+        href = (anchor.get('href') or '').strip()
+        if not href or href.startswith(('#', 'mailto:', 'tel:', 'javascript:')):
+            continue
+        absolute = requests.compat.urljoin(page_url, href)
+        normalized = normalize_compare_url(absolute)
+        if normalized:
+            links.add(normalized)
+
+    return links
 
 @st.cache_data(show_spinner=False)
 def get_file_hash(file_bytes):
@@ -302,6 +346,31 @@ with tab_tool:
                                 added += 1
                                 if added >= links_per_page: break
 
+                    if check_existing_links and found:
+                        source_pages = list(dict.fromkeys([row['Page to Edit (Source)'] for row in found if row.get('Page to Edit (Source)')]))
+                        existing_links_map = {}
+
+                        with st.status("Checking existing links on live pages...", expanded=False):
+                            for source_url in source_pages:
+                                try:
+                                    existing_links_map[source_url] = extract_main_content_links(source_url)
+                                except Exception:
+                                    existing_links_map[source_url] = None
+
+                        for row in found:
+                            source_url = row.get('Page to Edit (Source)', '')
+                            target_url = normalize_compare_url(row.get('Link Destination', ''))
+                            link_set = existing_links_map.get(source_url)
+                            if link_set is None:
+                                row['Existing Link'] = "Unknown"
+                            elif target_url and target_url in link_set:
+                                row['Existing Link'] = "Yes"
+                            else:
+                                row['Existing Link'] = "No"
+                    else:
+                        for row in found:
+                            row['Existing Link'] = "Not checked"
+
                     st.session_state.df_results = pd.DataFrame(found)
                     st.rerun()
 
@@ -353,7 +422,7 @@ with tab_tool:
                     display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
                     
                     # Formatting logic for Warning Label
-                    final_display = display_filtered[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].copy()
+                    final_display = display_filtered[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score', 'Existing Link']].copy()
                     final_display['Score'] = final_display['Score'].apply(lambda x: f"{int(x)}% ⚠️" if x >= 95 else f"{int(x)}%")
                     
                     st.dataframe(
@@ -389,7 +458,7 @@ with tab_tool:
                     display_filtered_folder = filtered_folder[['Focus URL', 'Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
                     display_filtered_folder.loc[display_filtered_folder.duplicated('Focus URL'), 'Focus URL'] = ""
                     
-                    final_display_folder = display_filtered_folder[['Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score']].copy()
+                    final_display_folder = display_filtered_folder[['Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score', 'Existing Link']].copy()
                     final_display_folder['Score'] = final_display_folder['Score'].apply(lambda x: f"{int(x)}% ⚠️" if x >= 95 else f"{int(x)}%")
 
                     st.dataframe(
@@ -419,7 +488,7 @@ with tab_tool:
                 for hub, avg_score in hubs_series.items():
                     hub_df = overview_data[overview_data['From Hub'] == hub].copy()
                     with st.expander(f"📁 HUB: {hub} ({round(avg_score)}%)"):
-                        display_hub = hub_df[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score']].sort_values(by=['Page to Edit (Source)', 'Score'], ascending=[True, False]).copy()
+                        display_hub = hub_df[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score', 'Existing Link']].sort_values(by=['Page to Edit (Source)', 'Score'], ascending=[True, False]).copy()
                         display_hub.loc[display_hub.duplicated('Page to Edit (Source)'), 'Page to Edit (Source)'] = ""
                         
                         # Apply warning label
