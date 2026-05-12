@@ -480,13 +480,6 @@ with tab_tool:
 
                 st.dataframe(styled_matrix_hub, width='stretch', on_select="rerun", selection_mode="multi-row", key="matrix_selector_hub")
 
-                visible_hub_selection = st.multiselect(
-                    "Selected hub rows (visible selector)",
-                    options=list(matrix_hub.index),
-                    default=[],
-                    key=f"visible_hub_selection_{dir_hub.lower()}"
-                )
-
                 hub_csv_buffer = io.StringIO()
                 matrix_hub.to_csv(hub_csv_buffer, sep=';')
                 st.download_button(
@@ -501,8 +494,6 @@ with tab_tool:
                 selection_hub = st.session_state.get("matrix_selector_hub")
                 if selection_hub and selection_hub.get("selection", {}).get("rows"):
                     selected_hubs = [matrix_hub.index[i] for i in selection_hub["selection"]["rows"] if i < len(matrix_hub.index)]
-                if visible_hub_selection:
-                    selected_hubs = list(dict.fromkeys(selected_hubs + visible_hub_selection))
 
                 if selected_hubs:
                     st.markdown(f"### 🎯 Links to place from Hub rows: `{len(selected_hubs)}` selected")
@@ -539,13 +530,6 @@ with tab_tool:
 
                 st.dataframe(styled_matrix_folder, width='stretch', on_select="rerun", selection_mode="multi-row", key="matrix_selector_folder")
 
-                visible_folder_selection = st.multiselect(
-                    "Selected folder rows (visible selector)",
-                    options=list(matrix_folder.index),
-                    default=[],
-                    key=f"visible_folder_selection_{dir_folder.lower()}"
-                )
-
                 folder_csv_buffer = io.StringIO()
                 matrix_folder.to_csv(folder_csv_buffer, sep=';')
                 st.download_button(
@@ -560,8 +544,6 @@ with tab_tool:
                 selection_folder = st.session_state.get("matrix_selector_folder")
                 if selection_folder and selection_folder.get("selection", {}).get("rows"):
                     selected_folders = [matrix_folder.index[i] for i in selection_folder["selection"]["rows"] if i < len(matrix_folder.index)]
-                if visible_folder_selection:
-                    selected_folders = list(dict.fromkeys(selected_folders + visible_folder_selection))
 
                 if selected_folders:
                     st.markdown(f"### 🎯 Links to place from Folder rows: `{len(selected_folders)}` selected")
