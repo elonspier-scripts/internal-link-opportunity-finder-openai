@@ -40,12 +40,14 @@ st.markdown("""
 # ========================================================
 if 'df_results' not in st.session_state:
     st.session_state.df_results = None
+if 'analysis_signature' not in st.session_state:
+    st.session_state.analysis_signature = None
 
 with st.sidebar:
     st.title("⚙️ Configuration")
     api_key = st.text_input("OpenAI API Key", type="password", key="api_key_val")
     st.divider()
-    score_threshold = st.slider("Minimum Match threshold %", 50, 95, 80) / 100
+    score_threshold = st.slider("Minimum Match threshold % (display filter)", 50, 95, 80) / 100
     links_per_page = st.slider("Links per URL", 1, 10, 5)
     check_existing_links = st.toggle(
         "Check and hide existing links",
@@ -98,6 +100,7 @@ def parse_sitemap_xml(xml_text):
 
     return urls, child_sitemaps
 
+@st.cache_data(show_spinner=False)
 def fetch_sitemap_urls(sitemap_url, max_sitemaps=25):
     pending = [sitemap_url]
     visited = set()
@@ -140,14 +143,32 @@ def extract_main_content_links(page_url):
 
     soup = BeautifulSoup(response.text, 'html.parser')
     links = set()
+
+    def has_boilerplate_class_or_id(anchor):
+        class_pattern = re.compile(r'\b(footer|menu|sidebar|breadcrumb|breadcrumbs)\b', re.I)
+        for parent in anchor.parents:
+            if not getattr(parent, 'name', None):
+                continue
+            if parent.name in ('html', 'body'):
+                continue
+
+            classes = parent.get('class') or []
+            class_text = " ".join(classes) if isinstance(classes, list) else str(classes)
+            if class_pattern.search(class_text):
+                return True
+
+            parent_id = parent.get('id') or ""
+            if class_pattern.search(str(parent_id)):
+                return True
+
+        return False
+
     for anchor in soup.find_all('a', href=True):
         if anchor.find_parent(['header', 'nav', 'footer', 'aside']):
             continue
         if anchor.find_parent(attrs={'role': re.compile(r'navigation', re.I)}):
             continue
-        if anchor.find_parent(class_=re.compile(r'footer|menu|sidebar|breadcrumb|breadcrumbs', re.I)):
-            continue
-        if anchor.find_parent(id=re.compile(r'footer|menu|sidebar|breadcrumb|breadcrumbs', re.I)):
+        if has_boilerplate_class_or_id(anchor):
             continue
 
         href = (anchor.get('href') or '').strip()
@@ -159,6 +180,10 @@ def extract_main_content_links(page_url):
             links.add(normalized)
 
     return links
+
+@st.cache_data(show_spinner=False)
+def get_cached_page_links(page_url):
+    return sorted(extract_main_content_links(page_url))
 
 @st.cache_data(show_spinner=False)
 def get_file_hash(file_bytes):
@@ -297,10 +322,23 @@ with tab_tool:
                     if using_sitemap and not focus_list:
                         focus_list = clean_df[url_col].astype(str).tolist()
 
+                    analysis_signature = (
+                        file_hash,
+                        tuple(focus_list),
+                        links_per_page,
+                        check_existing_links,
+                        embedding_model
+                    )
+
+                    if st.session_state.df_results is not None and st.session_state.analysis_signature == analysis_signature:
+                        st.info("Using cached analysis results for this dataset/settings.")
+                        st.rerun()
+
                     vecs = get_embeddings(tuple(clean_df['text'].tolist()), api_key, embedding_model, file_hash)
                     sims = get_similarity_matrix(vecs, file_hash, embedding_model)
 
                     found = []
+                    base_score_threshold = 0.50
                     for f_url in focus_list:
                         if f_url not in clean_df[url_col].values: continue
                         idx_src = clean_df.index[clean_df[url_col] == f_url].tolist()[0]
@@ -313,7 +351,7 @@ with tab_tool:
                         for t_idx in top_idx:
                             t_url = clean_df.iloc[t_idx][url_col]
                             s = float(scores[t_idx])
-                            if f_url != t_url and s >= score_threshold:
+                            if f_url != t_url and s >= base_score_threshold:
                                 
                                 # 1. OUTBOUND
                                 found.append({
@@ -353,7 +391,7 @@ with tab_tool:
                         with st.status("Checking existing links on live pages...", expanded=False):
                             for source_url in source_pages:
                                 try:
-                                    existing_links_map[source_url] = extract_main_content_links(source_url)
+                                    existing_links_map[source_url] = set(get_cached_page_links(source_url))
                                 except Exception:
                                     existing_links_map[source_url] = None
 
@@ -372,6 +410,7 @@ with tab_tool:
                             row['Existing Link'] = "Not checked"
 
                     st.session_state.df_results = pd.DataFrame(found)
+                    st.session_state.analysis_signature = analysis_signature
                     st.rerun()
 
             except Exception as e:
@@ -385,6 +424,11 @@ with tab_tool:
 
         if 'Existing Link' not in data.columns:
             data['Existing Link'] = "Not checked"
+
+        data = data[data['Score'] >= (score_threshold * 100)].copy()
+        if data.empty:
+            st.info("No opportunities match the selected minimum score filter.")
+            st.stop()
 
         hide_existing_links_display = st.toggle(
             "Hide existing links in results",
