@@ -568,35 +568,34 @@ with tab_tool:
         # ========================================================
         st.divider()
         st.subheader("🏗️ Topic Hubs Overview (Outbound)")
-        st.info("This overview shows the standard outbound perspective for your focus URLs.")
+        st.info("This overview is split by row-level score bands and shows matching To Hub targets per tab.")
 
         overview_data = data[data['Direction'] == 'Outbound'].copy()
-        hub_stats = overview_data.groupby('From Hub')['Score'].mean().sort_values(ascending=False)
 
         tab_strong, tab_avg, tab_weak = st.tabs(["🟢 Strong (>= 85%)", "🟡 Average (70-84%)", "🔴 Weak (< 70%)"])
 
-        def render_hub_group(hubs_series):
-            if hubs_series.empty:
-                st.info("Geen hubs gevonden.")
-            else:
-                for hub, avg_score in hubs_series.items():
-                    hub_df = overview_data[overview_data['From Hub'] == hub].copy()
-                    with st.expander(f"📁 HUB: {hub} ({round(avg_score)}%)"):
-                        display_hub = hub_df[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score', 'Existing Link']].sort_values(by=['Page to Edit (Source)', 'Score'], ascending=[True, False]).copy()
-                        display_hub.loc[display_hub.duplicated('Page to Edit (Source)'), 'Page to Edit (Source)'] = ""
-                        
-                        # Apply warning label
-                        display_hub['Score'] = display_hub['Score'].apply(lambda x: f"{int(x)}% ⚠️" if x >= 95 else f"{int(x)}%")
-                        
-                        st.dataframe(
-                            display_hub.style.map(color_score, subset=['Score']),
-                            width='stretch',
-                            hide_index=True
-                        )
+        def render_score_band(filtered_df, label):
+            if filtered_df.empty:
+                st.info(f"No {label.lower()} opportunities found.")
+                return
 
-        with tab_strong: render_hub_group(hub_stats[hub_stats >= 85])
-        with tab_avg: render_hub_group(hub_stats[(hub_stats >= 70) & (hub_stats < 85)])
-        with tab_weak: render_hub_group(hub_stats[hub_stats < 70])
+            for hub, hub_df in filtered_df.groupby('From Hub', sort=True):
+                with st.expander(f"📁 HUB: {hub} ({len(hub_df)} links)"):
+                    display_hub = hub_df[['Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score', 'Existing Link']].sort_values(by=['Page to Edit (Source)', 'Score'], ascending=[True, False]).copy()
+                    display_hub.loc[display_hub.duplicated('Page to Edit (Source)'), 'Page to Edit (Source)'] = ""
+                    display_hub['Score'] = display_hub['Score'].apply(lambda x: f"{int(x)}% ⚠️" if x >= 95 else f"{int(x)}%")
+                    st.dataframe(
+                        display_hub.style.map(color_score, subset=['Score']),
+                        width='stretch',
+                        hide_index=True
+                    )
+
+        with tab_strong:
+            render_score_band(overview_data[overview_data['Score'] >= 85], "Strong")
+        with tab_avg:
+            render_score_band(overview_data[(overview_data['Score'] >= 70) & (overview_data['Score'] < 85)], "Average")
+        with tab_weak:
+            render_score_band(overview_data[overview_data['Score'] < 70], "Weak")
         
         # ========================================================
         # 8. EXPORT CSV
