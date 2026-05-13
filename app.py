@@ -9,6 +9,8 @@ import hashlib
 import requests
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 from urllib.parse import urlparse
 
 # ========================================================
@@ -53,6 +55,19 @@ with st.sidebar:
         "Check and hide existing links",
         value=False,
         help="Checks if recommended links already exist on the page (boilerplate excluded) and hides matches that already exist."
+    )
+    auto_link_check_workers = st.toggle(
+        "Auto concurrency for link checks",
+        value=True,
+        disabled=not check_existing_links,
+        help="Automatically adapts worker count based on early link-check performance."
+    )
+    max_link_check_workers = st.slider(
+        "Max concurrent link checks",
+        1,
+        20,
+        6,
+        disabled=(not check_existing_links) or auto_link_check_workers
     )
 
 # ========================================================
@@ -396,12 +411,54 @@ with tab_tool:
                         source_pages = list(dict.fromkeys([row['Page to Edit (Source)'] for row in found if row.get('Page to Edit (Source)')]))
                         existing_links_map = {}
 
+                        def run_link_checks(urls, workers):
+                            durations = []
+                            failures = 0
+
+                            with ThreadPoolExecutor(max_workers=workers) as executor:
+                                future_to_source = {}
+                                for source_url in urls:
+                                    start_time = time.perf_counter()
+                                    future = executor.submit(get_cached_page_links, source_url)
+                                    future_to_source[future] = (source_url, start_time)
+
+                                for future in as_completed(future_to_source):
+                                    source_url, start_time = future_to_source[future]
+                                    duration = time.perf_counter() - start_time
+                                    durations.append(duration)
+                                    try:
+                                        existing_links_map[source_url] = set(future.result())
+                                    except Exception:
+                                        existing_links_map[source_url] = None
+                                        failures += 1
+
+                            avg_duration = (sum(durations) / len(durations)) if durations else 0.0
+                            fail_rate = (failures / len(urls)) if urls else 0.0
+                            return avg_duration, fail_rate
+
                         with st.status("Checking existing links on live pages...", expanded=False):
-                            for source_url in source_pages:
-                                try:
-                                    existing_links_map[source_url] = set(get_cached_page_links(source_url))
-                                except Exception:
-                                    existing_links_map[source_url] = None
+                            if auto_link_check_workers and source_pages:
+                                probe_count = min(15, len(source_pages))
+                                probe_urls = source_pages[:probe_count]
+                                avg_duration, fail_rate = run_link_checks(probe_urls, workers=4)
+
+                                if fail_rate > 0.20:
+                                    chosen_workers = 2
+                                elif avg_duration > 2.5:
+                                    chosen_workers = 4
+                                elif avg_duration > 1.2:
+                                    chosen_workers = 6
+                                else:
+                                    chosen_workers = 10
+
+                                chosen_workers = min(chosen_workers, 20)
+                                st.caption(f"Auto concurrency selected: {chosen_workers} workers (probe fail rate: {fail_rate:.0%}, avg response: {avg_duration:.2f}s)")
+
+                                remaining_urls = [u for u in source_pages if u not in existing_links_map]
+                                if remaining_urls:
+                                    run_link_checks(remaining_urls, workers=chosen_workers)
+                            else:
+                                run_link_checks(source_pages, workers=max_link_check_workers)
 
                         for row in found:
                             source_url = row.get('Page to Edit (Source)', '')
