@@ -525,6 +525,7 @@ with tab_tool:
         with tab_matrix_hub:
             dir_hub = st.selectbox("🔗 Select Link Direction:", ["Outbound", "Inbound"], key="dir_hub_select")
             data_hub = data[data['Direction'] == dir_hub]
+            matrix_hub_key = f"matrix_selector_hub_{dir_hub.lower()}"
             
             if not data_hub.empty:
                 matrix_hub = pd.crosstab(data_hub['From Hub'], data_hub['To Hub'])
@@ -535,7 +536,7 @@ with tab_tool:
                 max_val_hub = matrix_hub.values.max() if matrix_hub.values.max() > 0 else 1
                 styled_matrix_hub = matrix_hub.style.map(lambda v: style_matrix_cells(v, max_val_hub))
 
-                st.dataframe(styled_matrix_hub, width='stretch', on_select="rerun", selection_mode="multi-row", key="matrix_selector_hub")
+                st.dataframe(styled_matrix_hub, width='stretch', on_select="rerun", selection_mode="multi-row", key=matrix_hub_key)
 
                 hub_csv_buffer = io.StringIO()
                 matrix_hub.to_csv(hub_csv_buffer, sep=';')
@@ -548,12 +549,12 @@ with tab_tool:
                 )
 
                 selected_hubs = []
-                selection_hub = st.session_state.get("matrix_selector_hub")
+                selection_hub = st.session_state.get(matrix_hub_key)
                 if selection_hub and selection_hub.get("selection", {}).get("rows"):
                     selected_hubs = [matrix_hub.index[i] for i in selection_hub["selection"]["rows"] if i < len(matrix_hub.index)]
 
                 if selected_hubs:
-                    st.markdown(f"### 🎯 Links to place from Hub rows: `{len(selected_hubs)}` selected")
+                    st.markdown(f"### 🎯 {dir_hub} links from Hub rows: `{len(selected_hubs)}` selected")
                     filtered = data_hub[data_hub['From Hub'].isin(selected_hubs)].copy()
                     display_filtered = filtered[['Focus URL', 'Page to Edit (Source)', 'To Hub', 'Link Destination', 'Score', 'Existing Link']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
                     display_filtered.loc[display_filtered.duplicated('Focus URL'), 'Focus URL'] = ""
@@ -575,6 +576,7 @@ with tab_tool:
         with tab_matrix_folder:
             dir_folder = st.selectbox("🔗 Select Link Direction:", ["Outbound", "Inbound"], key="dir_folder_select")
             data_folder = data[data['Direction'] == dir_folder]
+            matrix_folder_key = f"matrix_selector_folder_{dir_folder.lower()}"
             
             if not data_folder.empty:
                 matrix_folder = pd.crosstab(data_folder['From Folder'], data_folder['To Folder'])
@@ -585,7 +587,7 @@ with tab_tool:
                 max_val_folder = matrix_folder.values.max() if matrix_folder.values.max() > 0 else 1
                 styled_matrix_folder = matrix_folder.style.map(lambda v: style_matrix_cells(v, max_val_folder))
 
-                st.dataframe(styled_matrix_folder, width='stretch', on_select="rerun", selection_mode="multi-row", key="matrix_selector_folder")
+                st.dataframe(styled_matrix_folder, width='stretch', on_select="rerun", selection_mode="multi-row", key=matrix_folder_key)
 
                 folder_csv_buffer = io.StringIO()
                 matrix_folder.to_csv(folder_csv_buffer, sep=';')
@@ -598,12 +600,12 @@ with tab_tool:
                 )
 
                 selected_folders = []
-                selection_folder = st.session_state.get("matrix_selector_folder")
+                selection_folder = st.session_state.get(matrix_folder_key)
                 if selection_folder and selection_folder.get("selection", {}).get("rows"):
                     selected_folders = [matrix_folder.index[i] for i in selection_folder["selection"]["rows"] if i < len(matrix_folder.index)]
 
                 if selected_folders:
-                    st.markdown(f"### 🎯 Links to place from Folder rows: `{len(selected_folders)}` selected")
+                    st.markdown(f"### 🎯 {dir_folder} links from Folder rows: `{len(selected_folders)}` selected")
                     filtered_folder = data_folder[data_folder['From Folder'].isin(selected_folders)].copy()
                     display_filtered_folder = filtered_folder[['Focus URL', 'Page to Edit (Source)', 'To Folder', 'Link Destination', 'Score', 'Existing Link']].sort_values(by=['Focus URL', 'Score'], ascending=[True, False]).copy()
                     display_filtered_folder.loc[display_filtered_folder.duplicated('Focus URL'), 'Focus URL'] = ""
