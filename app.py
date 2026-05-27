@@ -299,7 +299,6 @@ with tab_tool:
         if not api_key: missing.append("OpenAI API Key (in the sidebar)")
         using_sitemap_input = bool(sitemap_url.strip())
         if not file and not using_sitemap_input: missing.append("CSV-file or Sitemap URL")
-        if not using_sitemap_input and not urls_txt: missing.append("Focus URL's")
 
         if missing:
             st.error(f"⚠️ De volgende velden ontbreken: {', '.join(missing)}")
@@ -343,8 +342,9 @@ with tab_tool:
                     clean_df['Category'] = clean_df['text'].apply(get_cat)
                     cat_lookup = dict(zip(clean_df[url_col], clean_df['Category']))
 
-                    if using_sitemap and not focus_list:
+                    if not focus_list:
                         focus_list = clean_df[url_col].astype(str).tolist()
+                        st.info(f"No focus URLs provided. Running full-site mode on {len(focus_list)} URLs.")
 
                     analysis_signature = (
                         file_hash,
@@ -524,6 +524,12 @@ with tab_tool:
         # --- TAB 1: HUB MATRIX ---
         with tab_matrix_hub:
             dir_hub = st.selectbox("🔗 Select Link Direction:", ["Outbound", "Inbound"], key="dir_hub_select")
+            selection_mode_hub = st.selectbox(
+                "Selection mode",
+                ["single-row", "multi-row"],
+                index=1,
+                key="selection_mode_hub"
+            )
             data_hub = data[data['Direction'] == dir_hub]
             
             if not data_hub.empty:
@@ -535,7 +541,7 @@ with tab_tool:
                 max_val_hub = matrix_hub.values.max() if matrix_hub.values.max() > 0 else 1
                 styled_matrix_hub = matrix_hub.style.map(lambda v: style_matrix_cells(v, max_val_hub))
 
-                st.dataframe(styled_matrix_hub, width='stretch', on_select="rerun", selection_mode="multi-row", key="matrix_selector_hub")
+                st.dataframe(styled_matrix_hub, width='stretch', on_select="rerun", selection_mode=selection_mode_hub, key="matrix_selector_hub")
 
                 hub_csv_buffer = io.StringIO()
                 matrix_hub.to_csv(hub_csv_buffer, sep=';')
@@ -574,6 +580,12 @@ with tab_tool:
         # --- TAB 2: FOLDER MATRIX ---
         with tab_matrix_folder:
             dir_folder = st.selectbox("🔗 Select Link Direction:", ["Outbound", "Inbound"], key="dir_folder_select")
+            selection_mode_folder = st.selectbox(
+                "Selection mode",
+                ["single-row", "multi-row"],
+                index=1,
+                key="selection_mode_folder"
+            )
             data_folder = data[data['Direction'] == dir_folder]
             
             if not data_folder.empty:
@@ -585,7 +597,7 @@ with tab_tool:
                 max_val_folder = matrix_folder.values.max() if matrix_folder.values.max() > 0 else 1
                 styled_matrix_folder = matrix_folder.style.map(lambda v: style_matrix_cells(v, max_val_folder))
 
-                st.dataframe(styled_matrix_folder, width='stretch', on_select="rerun", selection_mode="multi-row", key="matrix_selector_folder")
+                st.dataframe(styled_matrix_folder, width='stretch', on_select="rerun", selection_mode=selection_mode_folder, key="matrix_selector_folder")
 
                 folder_csv_buffer = io.StringIO()
                 matrix_folder.to_csv(folder_csv_buffer, sep=';')
