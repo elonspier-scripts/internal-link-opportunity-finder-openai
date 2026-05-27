@@ -299,7 +299,6 @@ with tab_tool:
         if not api_key: missing.append("OpenAI API Key (in the sidebar)")
         using_sitemap_input = bool(sitemap_url.strip())
         if not file and not using_sitemap_input: missing.append("CSV-file or Sitemap URL")
-        if not using_sitemap_input and not urls_txt: missing.append("Focus URL's")
 
         if missing:
             st.error(f"⚠️ De volgende velden ontbreken: {', '.join(missing)}")
@@ -343,8 +342,9 @@ with tab_tool:
                     clean_df['Category'] = clean_df['text'].apply(get_cat)
                     cat_lookup = dict(zip(clean_df[url_col], clean_df['Category']))
 
-                    if using_sitemap and not focus_list:
+                    if not focus_list:
                         focus_list = clean_df[url_col].astype(str).tolist()
+                        st.info(f"No focus URLs provided. Running full-site mode on {len(focus_list)} URLs.")
 
                     analysis_signature = (
                         file_hash,
